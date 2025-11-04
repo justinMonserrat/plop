@@ -107,6 +107,52 @@ BEGIN
   END IF;
 END $$;
 
+-- Add image_url column to posts if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'posts' 
+    AND column_name = 'image_url'
+  ) THEN
+    ALTER TABLE posts ADD COLUMN image_url TEXT;
+  END IF;
+END $$;
+
+-- Update posts content column to allow NULL if it doesn't already
+DO $$
+BEGIN
+  -- Check if content can be NULL
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'posts'
+    AND column_name = 'content'
+    AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE posts ALTER COLUMN content DROP NOT NULL;
+  END IF;
+END $$;
+
+-- Update posts table constraint to allow content or image_url
+DO $$
+BEGIN
+  -- Drop existing constraint if it exists
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'posts_content_or_image_url_check'
+  ) THEN
+    ALTER TABLE posts DROP CONSTRAINT posts_content_or_image_url_check;
+  END IF;
+  
+  -- Add constraint that allows either content or image_url
+  ALTER TABLE posts ADD CONSTRAINT posts_content_or_image_url_check 
+    CHECK (content IS NOT NULL OR image_url IS NOT NULL);
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Constraint might already exist with different name, ignore
+    NULL;
+END $$;
+
 -- Add image_url column if it doesn't exist
 DO $$
 BEGIN
@@ -125,7 +171,7 @@ BEGIN
   -- Check if content can be NULL
   IF EXISTS (
     SELECT 1 FROM information_schema.columns 
-    WHERE table_name = 'messages' 
+    WHERE table_name = 'messages'
     AND column_name = 'content'
     AND is_nullable = 'NO'
   ) THEN

@@ -4,6 +4,8 @@ import { supabase } from "../supabaseClient";
 import { compressPostImage } from "../utils/imageCompression";
 import "../styles/blog.css";
 
+const POSTS_PER_PAGE = 20;
+
 export default function Blog({ onViewProfile }) {
   const { user } = useAuth();
   const [posts, setPosts] = useState([]);
@@ -11,54 +13,84 @@ export default function Blog({ onViewProfile }) {
   const [postImage, setPostImage] = useState(null);
   const [postImagePreview, setPostImagePreview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(0);
   const [posting, setPosting] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (user?.id) {
-      fetchPosts();
+      setPosts([]);
+      setPage(0);
+      setHasMore(true);
+      fetchPosts(0, true);
     }
   }, [user?.id]);
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (pageNum = 0, reset = false) => {
     if (!user?.id) return;
     
-    setLoading(true);
+    if (reset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+
     try {
       const { data: postsData, error } = await supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(100);
+        .range(pageNum * POSTS_PER_PAGE, (pageNum + 1) * POSTS_PER_PAGE - 1);
 
       if (error) {
         console.error('Error fetching posts:', error);
         throw error;
       }
 
+      if (!postsData || postsData.length === 0) {
+        setHasMore(false);
+        if (reset) {
+          setPosts([]);
+        }
+        return;
+      }
+
+      setHasMore(postsData.length === POSTS_PER_PAGE);
+
       // Fetch profile data separately
-      if (postsData && postsData.length > 0) {
-        const userIds = [...new Set(postsData.map(p => p.user_id))];
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('id, nickname, avatar_url')
-          .in('id', userIds);
+      const userIds = [...new Set(postsData.map(p => p.user_id))];
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, nickname, avatar_url')
+        .in('id', userIds);
 
-        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
-        const postsWithProfiles = postsData.map(post => ({
-          ...post,
-          profiles: profilesMap.get(post.user_id),
-        }));
+      const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+      const postsWithProfiles = postsData.map(post => ({
+        ...post,
+        profiles: profilesMap.get(post.user_id),
+      }));
 
+      if (reset) {
         setPosts(postsWithProfiles);
       } else {
-        setPosts([]);
+        setPosts(prev => [...prev, ...postsWithProfiles]);
       }
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMore = () => {
+    if (!loadingMore && hasMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchPosts(nextPage, false);
     }
   };
 
@@ -116,33 +148,39 @@ export default function Blog({ onViewProfile }) {
     if ((!content.trim() && !postImage) || !user?.id) return;
 
     setPosting(true);
-    setUploadingImage(true);
     try {
       let imageUrl = null;
 
       // Upload image if present
       if (postImage) {
-        // Always use .jpg for compressed images
-        const fileName = `${user.id}-${Date.now()}.jpg`;
+        setUploadingImage(true);
+        try {
+          // Always use .jpg for compressed images
+          const fileName = `${user.id}-${Date.now()}.jpg`;
 
-        const { error: uploadError } = await supabase.storage
-          .from('post-images')
-          .upload(fileName, postImage, {
-            upsert: true,
-            cacheControl: '3600',
-          });
+          const { error: uploadError } = await supabase.storage
+            .from('post-images')
+            .upload(fileName, postImage, {
+              upsert: true,
+              cacheControl: '3600',
+            });
 
-        if (uploadError) {
-          console.error('Upload error:', uploadError);
-          alert(`Error uploading image: ${uploadError.message || 'Please try again.'}`);
-          return;
+          if (uploadError) {
+            console.error('Upload error:', uploadError);
+            alert(`Error uploading image: ${uploadError.message || 'Please try again.'}`);
+            setUploadingImage(false);
+            setPosting(false);
+            return;
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('post-images')
+            .getPublicUrl(fileName);
+
+          imageUrl = publicUrl;
+        } finally {
+          setUploadingImage(false);
         }
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('post-images')
-          .getPublicUrl(fileName);
-
-        imageUrl = publicUrl;
       }
 
       const { error } = await supabase
@@ -150,12 +188,13 @@ export default function Blog({ onViewProfile }) {
         .insert({
           user_id: user.id,
           content: content.trim() || null,
-          image_url: imageUrl,
+          image_url: imageUrl || null,
         });
 
       if (error) {
         console.error('Error creating post:', error);
         alert(`Error creating post: ${error.message || 'Please try again.'}`);
+        setPosting(false);
         return;
       }
 
@@ -165,7 +204,10 @@ export default function Blog({ onViewProfile }) {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      fetchPosts(); // Refresh posts
+      // Reset and reload from beginning
+      setPage(0);
+      setHasMore(true);
+      fetchPosts(0, true);
     } catch (error) {
       console.error('Error creating post:', error);
       alert(`Error creating post: ${error.message || 'Please try again.'}`);
@@ -204,7 +246,10 @@ export default function Blog({ onViewProfile }) {
         return;
       }
 
-      fetchPosts(); // Refresh posts
+      // Reset and reload from beginning
+      setPage(0);
+      setHasMore(true);
+      fetchPosts(0, true);
     } catch (error) {
       console.error('Error deleting post:', error);
       alert('Error deleting post. Please try again.');
@@ -302,56 +347,78 @@ export default function Blog({ onViewProfile }) {
       {loading ? (
         <p>Loading posts...</p>
       ) : (
-        <div className="posts-feed">
-          {posts.length === 0 ? (
-            <div className="empty-feed">
-              <p>No posts yet! Be the first to share something.</p>
-            </div>
-          ) : (
-            posts.map((post) => (
-              <div key={post.id} className="post-card">
-                <div className="post-header">
-                  <div 
-                    className="post-author"
-                    onClick={() => onViewProfile && onViewProfile(post.user_id)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="post-avatar">
-                      {post.profiles?.avatar_url ? (
-                        <img src={post.profiles.avatar_url} alt={post.profiles.nickname} />
-                      ) : (
-                        <div className="post-avatar-placeholder">
-                          {post.profiles?.nickname?.[0]?.toUpperCase() || 'U'}
-                        </div>
-                      )}
-                    </div>
-                    <div className="post-author-info">
-                      <span className="post-author-name">
-                        {post.profiles?.nickname || 'User'}
-                      </span>
-                      <span className="post-time">{formatDate(post.created_at)}</span>
-                    </div>
-                  </div>
-                  {post.user_id === user?.id && (
-                    <button
-                      className="delete-post-btn"
-                      onClick={() => handleDelete(post.id, post.image_url)}
-                      title="Delete post"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                <div className="post-content">
-                  {post.image_url && (
-                    <img src={post.image_url} alt="Post" className="post-image" />
-                  )}
-                  {post.content && <p>{post.content}</p>}
-                </div>
+        <>
+          <div className="posts-feed">
+            {posts.length === 0 ? (
+              <div className="empty-feed">
+                <p>No posts yet! Be the first to share something.</p>
               </div>
-            ))
+            ) : (
+              posts.map((post) => (
+                <div key={post.id} className="post-card">
+                  <div className="post-header">
+                    <div 
+                      className="post-author"
+                      onClick={() => onViewProfile && onViewProfile(post.user_id)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div className="post-avatar">
+                        {post.profiles?.avatar_url ? (
+                          <img src={post.profiles.avatar_url} alt={post.profiles.nickname} />
+                        ) : (
+                          <div className="post-avatar-placeholder">
+                            {post.profiles?.nickname?.[0]?.toUpperCase() || 'U'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="post-author-info">
+                        <span className="post-author-name">
+                          {post.profiles?.nickname || 'User'}
+                        </span>
+                        <span className="post-time">{formatDate(post.created_at)}</span>
+                      </div>
+                    </div>
+                    {post.user_id === user?.id && (
+                      <button
+                        className="delete-post-btn"
+                        onClick={() => handleDelete(post.id, post.image_url)}
+                        title="Delete post"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  <div className="post-content">
+                    {post.image_url && (
+                      <img src={post.image_url} alt="Post" className="post-image" />
+                    )}
+                    {post.content && <p>{post.content}</p>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          {hasMore && (
+            <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+              <button 
+                onClick={loadMore} 
+                disabled={loadingMore}
+                style={{
+                  padding: '0.75rem 2rem',
+                  fontSize: '1rem',
+                  backgroundColor: 'var(--accent-primary, #3b82f6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: loadingMore ? 'not-allowed' : 'pointer',
+                  opacity: loadingMore ? 0.6 : 1
+                }}
+              >
+                {loadingMore ? 'Loading...' : 'Load More'}
+              </button>
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );

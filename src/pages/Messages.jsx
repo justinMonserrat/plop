@@ -16,8 +16,12 @@ export default function Messages({ onViewProfile }) {
   const [messageImagePreview, setMessageImagePreview] = useState(null);
   const [chatMembers, setChatMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [messagesPage, setMessagesPage] = useState(0);
   const [sending, setSending] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const messagesListRef = useRef(null);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showGroupChatModal, setShowGroupChatModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -35,7 +39,10 @@ export default function Messages({ onViewProfile }) {
 
   useEffect(() => {
     if (selectedConversation) {
-      fetchMessages(selectedConversation.id);
+      setMessages([]);
+      setMessagesPage(0);
+      setHasMoreMessages(true);
+      fetchMessages(selectedConversation.id, 0, true);
       fetchChatMembers(selectedConversation.id);
       // Subscribe to new messages
       const channel = supabase
@@ -46,7 +53,8 @@ export default function Messages({ onViewProfile }) {
           table: 'messages',
           filter: `chat_id=eq.${selectedConversation.id}`,
         }, () => {
-          fetchMessages(selectedConversation.id);
+          // Just fetch the latest messages when new ones arrive
+          fetchLatestMessages(selectedConversation.id);
         })
         .subscribe();
 
@@ -115,45 +123,54 @@ export default function Messages({ onViewProfile }) {
         }
       });
 
-      // Build conversations with member info
-      const conversationsWithMembers = await Promise.all(
-        userChats.map(async (chat) => {
-          const chatMemberIds = membersData?.filter(m => m.chat_id === chat.id).map(m => m.user_id) || [];
-          const { data: profilesData } = await supabase
-            .from('profiles')
-            .select('id, nickname, avatar_url')
-            .in('id', chatMemberIds);
+      // Build conversations with basic info only (load member details on demand)
+      const conversationsWithMembers = userChats.map((chat) => {
+        const chatMemberIds = membersData?.filter(m => m.chat_id === chat.id).map(m => m.user_id) || [];
+        const lastMessage = lastMessagesMap.get(chat.id);
+        
+        // For 1-on-1 chats, find the other person's ID (we'll fetch profile later if needed)
+        const isGroupChat = chat.name !== null;
+        const otherPersonId = !isGroupChat ? chatMemberIds.find(id => id !== user.id) : null;
+        
+        // Count unread messages
+        const unreadCount = lastMessage && lastMessage.sender_id !== user.id && !lastMessage.read_at ? 1 : 0;
 
-          const lastMessage = lastMessagesMap.get(chat.id);
-          
-          // For 1-on-1 chats, find the other person
-          const isGroupChat = chat.name !== null;
-          let displayName = chat.name || 'Chat';
-          let displayAvatar = null;
-          
-          if (!isGroupChat && profilesData) {
-            const otherPerson = profilesData.find(p => p.id !== user.id);
-            if (otherPerson) {
-              displayName = otherPerson.nickname || 'User';
-              displayAvatar = otherPerson.avatar_url;
+        return {
+          id: chat.id,
+          name: chat.name || 'Chat',
+          isGroupChat,
+          avatar: null, // Load on demand
+          memberIds: chatMemberIds,
+          otherPersonId, // For 1-on-1 chats
+          members: [], // Load on demand
+          lastMessage,
+          unreadCount,
+          updatedAt: chat.updated_at,
+        };
+      });
+
+      // Fetch only the other person's profile for 1-on-1 chats (lightweight)
+      const otherPersonIds = conversationsWithMembers
+        .filter(c => !c.isGroupChat && c.otherPersonId)
+        .map(c => c.otherPersonId);
+      
+      if (otherPersonIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, nickname, avatar_url')
+          .in('id', otherPersonIds);
+
+        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+        conversationsWithMembers.forEach(conv => {
+          if (!conv.isGroupChat && conv.otherPersonId) {
+            const profile = profilesMap.get(conv.otherPersonId);
+            if (profile) {
+              conv.name = profile.nickname || 'User';
+              conv.avatar = profile.avatar_url;
             }
           }
-
-          // Count unread messages
-          const unreadCount = lastMessage && lastMessage.receiver_id === user.id && !lastMessage.read_at ? 1 : 0;
-
-          return {
-            id: chat.id,
-            name: displayName,
-            isGroupChat,
-            avatar: displayAvatar,
-            members: profilesData || [],
-            lastMessage,
-            unreadCount,
-            updatedAt: chat.updated_at,
-          };
-        })
-      );
+        });
+      }
 
       // Sort by last message time
       conversationsWithMembers.sort((a, b) => {
@@ -170,20 +187,40 @@ export default function Messages({ onViewProfile }) {
     }
   };
 
-  const fetchMessages = async (chatId) => {
+  const MESSAGES_PER_PAGE = 50;
+
+  const fetchMessages = async (chatId, pageNum = 0, reset = false) => {
     if (!user?.id || !chatId) return;
 
+    if (reset) {
+      setMessages([]);
+    } else {
+      setLoadingMoreMessages(true);
+    }
+
     try {
+      // Fetch messages in reverse order (newest first) for pagination
       const { data: messagesData, error } = await supabase
         .from('messages')
         .select('*')
         .eq('chat_id', chatId)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .range(pageNum * MESSAGES_PER_PAGE, (pageNum + 1) * MESSAGES_PER_PAGE - 1);
 
       if (error) {
         console.error('Error fetching messages:', error);
         throw error;
       }
+
+      if (!messagesData || messagesData.length === 0) {
+        setHasMoreMessages(false);
+        if (reset) {
+          setMessages([]);
+        }
+        return;
+      }
+
+      setHasMoreMessages(messagesData.length === MESSAGES_PER_PAGE);
 
       // Fetch sender profiles
       const senderIds = [...new Set(messagesData?.map(m => m.sender_id) || [])];
@@ -193,12 +230,24 @@ export default function Messages({ onViewProfile }) {
         .in('id', senderIds);
 
       const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
-      const messagesWithProfiles = messagesData?.map(msg => ({
+      const messagesWithProfiles = messagesData.map(msg => ({
         ...msg,
         sender: profilesMap.get(msg.sender_id),
-      })) || [];
+      }));
 
-      setMessages(messagesWithProfiles);
+      // Reverse to show oldest first (for display)
+      const reversed = messagesWithProfiles.reverse();
+
+      if (reset) {
+        setMessages(reversed);
+        // Scroll to bottom after loading
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+        }, 100);
+      } else {
+        // Prepend older messages
+        setMessages(prev => [...reversed, ...prev]);
+      }
 
       // Mark messages as read
       await supabase
@@ -208,9 +257,88 @@ export default function Messages({ onViewProfile }) {
         .neq('sender_id', user.id)
         .is('read_at', null);
 
-      fetchConversations(); // Refresh to update unread counts
+      if (reset) {
+        fetchConversations(); // Refresh to update unread counts
+      }
     } catch (error) {
       console.error('Error fetching messages:', error);
+    } finally {
+      setLoadingMoreMessages(false);
+    }
+  };
+
+  const fetchLatestMessages = async (chatId) => {
+    if (!user?.id || !chatId) return;
+
+    try {
+      // Get the most recent message timestamp we have
+      const latestMessage = messages[messages.length - 1];
+      const sinceTimestamp = latestMessage?.created_at;
+
+      const query = supabase
+        .from('messages')
+        .select('*')
+        .eq('chat_id', chatId)
+        .order('created_at', { ascending: true });
+
+      if (sinceTimestamp) {
+        query.gt('created_at', sinceTimestamp);
+      }
+
+      const { data: newMessages, error } = await query;
+
+      if (error) {
+        console.error('Error fetching latest messages:', error);
+        return;
+      }
+
+      if (newMessages && newMessages.length > 0) {
+        // Fetch sender profiles for new messages
+        const senderIds = [...new Set(newMessages.map(m => m.sender_id))];
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, nickname, avatar_url')
+          .in('id', senderIds);
+
+        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+        const messagesWithProfiles = newMessages.map(msg => ({
+          ...msg,
+          sender: profilesMap.get(msg.sender_id),
+        }));
+
+        setMessages(prev => [...prev, ...messagesWithProfiles]);
+
+        // Mark as read
+        await supabase
+          .from('messages')
+          .update({ read_at: new Date().toISOString() })
+          .eq('chat_id', chatId)
+          .neq('sender_id', user.id)
+          .is('read_at', null);
+
+        fetchConversations(); // Refresh to update unread counts
+      }
+    } catch (error) {
+      console.error('Error fetching latest messages:', error);
+    }
+  };
+
+  const loadMoreMessages = () => {
+    if (!loadingMoreMessages && hasMoreMessages && selectedConversation) {
+      const nextPage = messagesPage + 1;
+      setMessagesPage(nextPage);
+      const scrollPosition = messagesListRef.current?.scrollTop || 0;
+      const scrollHeight = messagesListRef.current?.scrollHeight || 0;
+      
+      fetchMessages(selectedConversation.id, nextPage, false).then(() => {
+        // Maintain scroll position after loading older messages
+        setTimeout(() => {
+          if (messagesListRef.current) {
+            const newScrollHeight = messagesListRef.current.scrollHeight;
+            messagesListRef.current.scrollTop = newScrollHeight - scrollHeight + scrollPosition;
+          }
+        }, 100);
+      });
     }
   };
 
@@ -584,7 +712,10 @@ export default function Messages({ onViewProfile }) {
         fileInputRef.current.value = '';
       }
       
-      fetchMessages(selectedConversation.id);
+      // Reset and reload messages from beginning
+      setMessagesPage(0);
+      setHasMoreMessages(true);
+      fetchMessages(selectedConversation.id, 0, true);
       fetchConversations();
     } catch (error) {
       console.error('Error sending message:', error);
@@ -770,7 +901,36 @@ export default function Messages({ onViewProfile }) {
               </div>
             )}
 
-            <div className="messages-list">
+            <div 
+              className="messages-list"
+              ref={messagesListRef}
+              onScroll={(e) => {
+                // Load more when scrolling to top
+                if (e.target.scrollTop === 0 && hasMoreMessages && !loadingMoreMessages) {
+                  loadMoreMessages();
+                }
+              }}
+            >
+              {hasMoreMessages && (
+                <div style={{ textAlign: 'center', padding: '1rem' }}>
+                  <button 
+                    onClick={loadMoreMessages} 
+                    disabled={loadingMoreMessages}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      fontSize: '0.9rem',
+                      backgroundColor: 'var(--accent-primary, #3b82f6)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: loadingMoreMessages ? 'not-allowed' : 'pointer',
+                      opacity: loadingMoreMessages ? 0.6 : 1
+                    }}
+                  >
+                    {loadingMoreMessages ? 'Loading older messages...' : 'Load Older Messages'}
+                  </button>
+                </div>
+              )}
               {messages.map((message) => (
                 <div
                   key={message.id}
