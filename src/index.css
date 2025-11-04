@@ -1,0 +1,101 @@
+:root {
+  --bg-primary: #1e3a5f;
+  --bg-secondary: #2d4a6f;
+  --bg-form: #0f1f3d;
+  --accent-primary: #3b82f6;
+  --accent-secondary: #4A90E2;
+  --accent-light: #6BB0FF;
+  --neutral-primary: #4a5568;
+  --neutral-secondary: #718096;
+  --neutral-light: #a0aec0;
+  --off-white: #F5F5F0;
+  --off-white-light: #FAFAF5;
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --border-color: #3b82f6;
+  --border-light: #6BB0FF;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  font-synthesis: none;
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  font-weight: bold;
+  color: var(--accent-light);
+  text-decoration: underline;
+}
+
+a:hover {
+  color: var(--text-primary);
+}
+
+a:visited {
+  color: var(--accent-light);
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  font-family: Arial, Helvetica, sans-serif;
+  cursor: pointer;
+}
+
+button:focus,
+button:focus-visible {
+  outline: 2px solid #FFFFFF;
+  outline-offset: 2px;
+}
+
+.app-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 50%, var(--bg-primary) 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content {
+  flex: 1;
+  background: transparent;
+  overflow-x: hidden;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 2em;
+  }
+
+  .page-content {
+    padding: 1rem;
+  }
+
+  .page-content h1 {
+    font-size: 1.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  h1 {
+    font-size: 1.75em;
+  }
+
+  .page-content {
+    padding: 0.75rem;
+  }
+
+  .page-content h1 {
+    font-size: 1.5rem;
+  }
+}

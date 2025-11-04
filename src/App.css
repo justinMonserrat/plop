@@ -1,0 +1,105 @@
+.landing-page {
+  min-height: 100vh;
+  background: #0066CC;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.hero-section {
+  max-width: 800px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+.hero-content {
+  text-align: center;
+  color: white;
+  background: #0066CC;
+  border: 4px solid #0000FF;
+  padding: 3rem;
+  box-shadow: 
+    inset 0 0 0 2px white,
+    inset 0 0 0 4px #0066CC;
+}
+
+.logo {
+  font-size: 6rem;
+  font-weight: 900;
+  margin: 0;
+  color: white;
+  text-shadow: 
+    3px 3px 0px #0000FF,
+    6px 6px 0px #000080;
+  letter-spacing: 2px;
+  font-family: Arial, sans-serif;
+}
+
+.tagline {
+  font-size: 1.5rem;
+  font-weight: normal;
+  margin: 1.5rem 0;
+  color: #FFFFFF;
+  text-shadow: 2px 2px 0px #0000FF;
+  font-family: Arial, sans-serif;
+}
+
+.cta-buttons {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
+}
+
+.btn {
+  padding: 12px 30px;
+  font-size: 1rem;
+  font-weight: bold;
+  border: 3px outset #87CEEB;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  text-transform: uppercase;
+}
+
+.btn-primary {
+  background: #3399FF;
+  color: white;
+  border-color: #87CEEB;
+}
+
+.btn-primary:active {
+  border-style: inset;
+  background: #0066CC;
+}
+
+.btn-secondary {
+  background: #0000FF;
+  color: white;
+  border-color: #87CEEB;
+}
+
+.btn-secondary:active {
+  border-style: inset;
+  background: #000080;
+}
+
+@media (max-width: 768px) {
+  .logo {
+    font-size: 4rem;
+  }
+  
+  .tagline {
+    font-size: 1.2rem;
+  }
+  
+  .hero-content {
+    padding: 2rem 1.5rem;
+  }
+}
