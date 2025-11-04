@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "./context/AuthContext";
+import { supabase } from "./supabaseClient";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
 import Home from "./pages/Home";
@@ -19,9 +20,23 @@ export default function App() {
   useEffect(() => {
     // Check if we're on a password reset page (check URL hash)
     const hash = window.location.hash;
-    if (hash.includes('type=recovery') || hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.substring(1));
+    const type = params.get('type');
+    
+    if (type === 'recovery' || hash.includes('type=recovery')) {
       setShowResetPassword(true);
     }
+
+    // Listen for auth state changes to detect password recovery
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setShowResetPassword(true);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (!user) {
@@ -51,7 +66,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "home":
-        return <Home />;
+        return <Home onViewProfile={handleViewProfile} />;
       case "profile":
         return (
           <Profile 
@@ -63,9 +78,9 @@ export default function App() {
       case "friends":
         return <Friends onViewProfile={handleViewProfile} />;
       case "blog":
-        return <Blog />;
+        return <Blog onViewProfile={handleViewProfile} />;
       case "messages":
-        return <Messages />;
+        return <Messages onViewProfile={handleViewProfile} />;
       default:
         return <Home />;
     }

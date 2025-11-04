@@ -1,6 +1,19 @@
+:root {
+  --navbar-bg: #0066CC;
+  --navbar-border: #0000FF;
+  --navbar-shadow: #000080;
+  --nav-btn-bg: #3399FF;
+  --nav-btn-hover: #4DA6FF;
+  --nav-btn-active: #0000FF;
+  --nav-btn-active-bg: #000080;
+  --logout-btn-bg: #FF3333;
+  --logout-btn-hover: #FF6666;
+  --logout-btn-active: #CC0000;
+}
+
 .navbar {
-  background: #0066CC;
-  border-bottom: 4px solid #0000FF;
+  background: var(--navbar-bg);
+  border-bottom: 4px solid var(--navbar-border);
   padding: 1rem 2rem;
   display: flex;
   align-items: center;
@@ -8,12 +21,60 @@
   gap: 2rem;
   box-shadow: 
     inset 0 0 0 2px white,
-    0 4px 0 0 #000080;
+    0 4px 0 0 var(--navbar-shadow);
   font-family: Arial, sans-serif;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .navbar-brand {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.mobile-menu-toggle {
+  display: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+}
+
+.hamburger {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 24px;
+  height: 20px;
+  position: relative;
+}
+
+.hamburger span {
+  display: block;
+  width: 100%;
+  height: 3px;
+  background: white;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+.hamburger.active span:nth-child(1) {
+  transform: rotate(45deg) translate(8px, 8px);
+}
+
+.hamburger.active span:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger.active span:nth-child(3) {
+  transform: rotate(-45deg) translate(7px, -7px);
 }
 
 .navbar-logo {
@@ -36,36 +97,81 @@
   justify-content: center;
 }
 
+/* Hide Profile link on desktop - only show in mobile menu */
+.profile-nav-link {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .navbar-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--navbar-bg);
+    border-top: 2px solid var(--navbar-border);
+    flex-direction: column;
+    padding: 1rem;
+    gap: 0.5rem;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    z-index: 99;
+  }
+
+  .navbar-links.mobile-open {
+    display: flex;
+  }
+
+  .nav-link {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Show Profile link in mobile menu */
+  .profile-nav-link {
+    display: block;
+  }
+
+  .mobile-menu-toggle {
+    display: flex;
+  }
+
+  .navbar-brand {
+    width: 100%;
+  }
+}
+
 .nav-link {
   padding: 8px 20px;
   font-size: 1rem;
   font-weight: bold;
-  border: 3px outset #87CEEB;
+  border: 3px outset var(--border-light, #6BB0FF);
   cursor: pointer;
   font-family: Arial, sans-serif;
   text-transform: uppercase;
-  background: #3399FF;
+  background: var(--nav-btn-bg);
   color: white;
   transition: all 0.1s;
+  white-space: nowrap;
 }
 
 .nav-link:hover {
-  background: #4DA6FF;
+  background: var(--nav-btn-hover);
 }
 
 .nav-link:active {
   border-style: inset;
-  background: #0066CC;
+  background: var(--navbar-bg);
 }
 
 .nav-link.active {
-  background: #0000FF;
-  border-color: #87CEEB;
+  background: var(--nav-btn-active);
+  border-color: var(--border-light, #6BB0FF);
   color: white;
 }
 
 .nav-link.active:active {
-  background: #000080;
+  background: var(--nav-btn-active-bg);
 }
 
 .navbar-user {
@@ -78,49 +184,51 @@
 .profile-nav-btn {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
   padding: 8px 20px;
   font-size: 1rem;
   font-weight: bold;
-  border: 3px outset #87CEEB;
+  border: 3px outset var(--border-light, #6BB0FF);
   cursor: pointer;
   font-family: Arial, sans-serif;
   text-transform: uppercase;
-  background: #3399FF;
+  background: var(--nav-btn-bg);
   color: white;
   transition: all 0.1s;
+  white-space: nowrap;
+  height: fit-content;
 }
 
 .profile-nav-btn:hover {
-  background: #4DA6FF;
+  background: var(--nav-btn-hover);
 }
 
 .profile-nav-btn:active {
   border-style: inset;
-  background: #0066CC;
+  background: var(--navbar-bg);
 }
 
 .profile-nav-btn.active {
-  background: #0000FF;
-  border-color: #87CEEB;
+  background: var(--nav-btn-active);
+  border-color: var(--border-light, #6BB0FF);
   color: white;
 }
 
 .profile-nav-btn.active:active {
-  background: #000080;
+  background: var(--nav-btn-active-bg);
 }
 
 .profile-nav-avatar {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   overflow: hidden;
-  background: #3399FF;
+  background: var(--nav-btn-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 2px solid #87CEEB;
+  border: 2px solid var(--border-light, #6BB0FF);
 }
 
 .profile-nav-avatar img {
@@ -135,7 +243,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: bold;
   color: white;
 }
@@ -143,77 +251,14 @@
 .profile-nav-name {
   color: white;
   font-family: Arial, sans-serif;
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: bold;
-  text-shadow: 1px 1px 0px #0000FF;
+  text-shadow: 1px 1px 0px var(--nav-btn-active);
   white-space: nowrap;
 }
 
-.logout-btn {
-  padding: 8px 20px;
-  font-size: 0.9rem;
-  font-weight: bold;
-  border: 3px outset #FF0000;
-  cursor: pointer;
-  font-family: Arial, sans-serif;
-  text-transform: uppercase;
-  background: #FF3333;
-  color: white;
-}
 
-.logout-btn:hover {
-  background: #FF6666;
-}
-
-.logout-btn:active {
-  border-style: inset;
-  background: #CC0000;
-}
-
-.page-content {
-  padding: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
-  color: white;
-  font-family: Arial, sans-serif;
-}
-
-.page-content h1 {
-  font-size: 2.5rem;
-  font-weight: 900;
-  margin: 0 0 1.5rem 0;
-  color: white;
-  text-shadow: 
-    3px 3px 0px #0000FF,
-    6px 6px 0px #000080;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-}
-
-.page-content p {
-  font-size: 1.1rem;
-  line-height: 1.6;
-  color: #FFFFFF;
-  text-shadow: 1px 1px 0px #0000FF;
-}
-
-.profile-info {
-  background: #0066CC;
-  border: 4px solid #0000FF;
-  padding: 2rem;
-  margin-top: 1rem;
-  box-shadow: 
-    inset 0 0 0 2px white,
-    inset 0 0 0 4px #0066CC;
-}
-
-.profile-info p {
-  margin: 1rem 0;
-}
-
-.profile-info strong {
-  color: #87CEEB;
-}
+/* Page content styles moved to index.css for consistency */
 
 /* Tablet styles */
 @media (max-width: 1024px) {
@@ -247,71 +292,22 @@
     flex-direction: column;
     padding: 1rem;
     gap: 1rem;
+    position: relative;
   }
 
   .navbar-brand {
     width: 100%;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .navbar-logo {
     font-size: 1.5rem;
   }
 
-  .navbar-links {
-    width: 100%;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .nav-link {
-    padding: 8px 12px;
-    font-size: 0.85rem;
-    flex: 1 1 auto;
-    min-width: 80px;
-    text-align: center;
-  }
-
   .navbar-user {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .profile-nav-btn {
-    padding: 8px 12px;
-    font-size: 0.85rem;
-    gap: 0.5rem;
-    flex: 1 1 auto;
-  }
-
-  .profile-nav-avatar {
-    width: 32px;
-    height: 32px;
-  }
-
-  .profile-nav-avatar-placeholder {
-    font-size: 1rem;
-  }
-
-  .profile-nav-name {
-    font-size: 0.8rem;
-  }
-
-  .logout-btn {
-    padding: 8px 16px;
-    font-size: 0.85rem;
-    flex: 1 1 auto;
-  }
-
-  .page-content {
-    padding: 1rem;
-  }
-
-  .page-content h1 {
-    font-size: 1.75rem;
+    display: none; /* Hide profile button on mobile */
   }
 }
 
@@ -323,43 +319,6 @@
 
   .navbar-logo {
     font-size: 1.25rem;
-  }
-
-  .nav-link {
-    padding: 6px 10px;
-    font-size: 0.75rem;
-    min-width: 70px;
-  }
-
-  .profile-nav-btn {
-    padding: 6px 10px;
-    font-size: 0.75rem;
-  }
-
-  .profile-nav-avatar {
-    width: 28px;
-    height: 28px;
-  }
-
-  .profile-nav-avatar-placeholder {
-    font-size: 0.9rem;
-  }
-
-  .profile-nav-name {
-    font-size: 0.75rem;
-  }
-
-  .logout-btn {
-    padding: 6px 12px;
-    font-size: 0.75rem;
-  }
-
-  .page-content {
-    padding: 0.75rem;
-  }
-
-  .page-content h1 {
-    font-size: 1.5rem;
   }
 }
 

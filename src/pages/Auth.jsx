@@ -57,14 +57,15 @@ export default function Auth() {
     setIsResetting(true);
     setError("");
     setSuccess("");
+    // Redirect to the same origin - Supabase will append the hash fragment
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${window.location.origin}`,
     });
     if (error) {
       setError(error.message);
       setIsResetting(false);
     } else {
-      setSuccess("Password reset email sent! Check your inbox.");
+      setSuccess("Password reset email sent! Check your inbox and click the link in the email.");
       setIsResetting(false);
     }
   };

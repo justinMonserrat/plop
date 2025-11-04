@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useProfile } from "../hooks/useProfile";
 import { useFollows } from "../hooks/useFollows";
 import { supabase } from "../supabaseClient";
+import { compressAvatarImage } from "../utils/imageCompression";
 import "../styles/profile.css";
 
 export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
@@ -15,7 +16,30 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
   const [nickname, setNickname] = useState("");
   const [bio, setBio] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [showMobileInfo, setShowMobileInfo] = useState(false);
   const fileInputRef = useRef(null);
+
+  const handleLogout = async () => {
+    try {
+      // Sign out from Supabase (ignore errors if session is already missing)
+      const { error } = await supabase.auth.signOut();
+      
+      // If error is about missing session, we're already logged out
+      if (error && !error.message.includes('session missing')) {
+        console.error('Logout error:', error);
+      }
+      
+      // Clear storage and redirect regardless
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/';
+    } catch (error) {
+      // Even if there's an error, clear and redirect
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/';
+    }
+  };
 
   useEffect(() => {
     if (profile) {
@@ -64,31 +88,51 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
     // Validate file type
     if (!file.type.startsWith('image/')) {
       alert('Please select an image file.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       return;
     }
 
-    // Validate file size (max 5MB)
+    // Check original file size (max 5MB before compression)
     if (file.size > 5 * 1024 * 1024) {
       alert('Image size must be less than 5MB.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       return;
     }
 
     setUploading(true);
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-    const filePath = fileName;
-
+    
     try {
+      // Compress the image
+      const compressedFile = await compressAvatarImage(file);
+      
+      // Check compressed size (max 500KB after compression)
+      if (compressedFile.size > 500 * 1024) {
+        alert('Image is too large even after compression. Please try a smaller image.');
+        setUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+
       // Delete old avatar if exists
       if (profile?.avatar_url) {
         const oldPath = profile.avatar_url.split('/').pop();
         await supabase.storage.from('avatars').remove([oldPath]);
       }
 
-      // Upload file to Supabase storage
+      // Always use .jpg for compressed images
+      const fileName = `${user.id}-${Date.now()}.jpg`;
+      const filePath = fileName;
+
+      // Upload compressed file to Supabase storage
       const { error: uploadError, data: uploadData } = await supabase.storage
         .from('avatars')
-        .upload(filePath, file, {
+        .upload(filePath, compressedFile, {
           upsert: true,
           cacheControl: '3600',
         });
@@ -140,7 +184,14 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
       )}
       <div className="profile-header">
         <div className="profile-avatar-section">
-          <div className="profile-avatar">
+          <div 
+            className="profile-avatar mobile-clickable"
+            onClick={() => {
+              if (window.innerWidth <= 768) {
+                setShowMobileInfo(!showMobileInfo);
+              }
+            }}
+          >
             {profile?.avatar_url ? (
               <img src={profile.avatar_url} alt={profile.nickname} />
             ) : (
@@ -163,7 +214,7 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
             </label>
           )}
         </div>
-        <div className="profile-info-section">
+        <div className={`profile-info-section ${showMobileInfo ? 'mobile-visible' : ''}`}>
           {isEditing ? (
             <div className="profile-edit-form">
               <div className="form-group">
@@ -196,23 +247,30 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
               <h1>{profile?.nickname || (isOwnProfile ? user?.email?.split('@')[0] : 'User') || 'User'}</h1>
               {isOwnProfile && <p className="profile-email">{user?.email}</p>}
               {profile?.bio && <p className="profile-bio">{profile.bio}</p>}
-              {isOwnProfile ? (
-                <button onClick={() => setIsEditing(true)} className="edit-btn">
-                  Edit Profile
-                </button>
-              ) : (
-                <button 
-                  onClick={async () => {
-                    await toggleFollow();
-                    if (fetchFollows) {
-                      fetchFollows();
-                    }
-                  }} 
-                  className={isFollowing ? "follow-btn following" : "follow-btn"}
-                >
-                  {isFollowing ? "Following" : "Follow"}
-                </button>
-              )}
+              <div className="profile-actions">
+                {isOwnProfile ? (
+                  <>
+                    <button onClick={() => setIsEditing(true)} className="edit-btn">
+                      Edit Profile
+                    </button>
+                    <button onClick={handleLogout} className="logout-btn">
+                      Log Out
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    onClick={async () => {
+                      await toggleFollow();
+                      if (fetchFollows) {
+                        fetchFollows();
+                      }
+                    }} 
+                    className={isFollowing ? "follow-btn following" : "follow-btn"}
+                  >
+                    {isFollowing ? "Following" : "Follow"}
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

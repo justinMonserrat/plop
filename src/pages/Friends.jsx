@@ -4,6 +4,138 @@ import { useFollows } from "../hooks/useFollows";
 import { supabase } from "../supabaseClient";
 import "../styles/friends.css";
 
+function FriendsActivity({ following, onViewProfile }) {
+  const { user } = useAuth();
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (following.length > 0) {
+      fetchActivity();
+    } else {
+      setLoading(false);
+      setPosts([]);
+    }
+  }, [following]);
+
+  const fetchActivity = async () => {
+    if (!user?.id || following.length === 0) return;
+    
+    setLoading(true);
+    try {
+      const followingIds = following.map(f => f.id);
+      const { data: postsData, error } = await supabase
+        .from('posts')
+        .select('*')
+        .in('user_id', followingIds)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('Error fetching activity:', error);
+        throw error;
+      }
+
+      // Fetch profile data separately
+      if (postsData && postsData.length > 0) {
+        const userIds = [...new Set(postsData.map(p => p.user_id))];
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, nickname, avatar_url')
+          .in('id', userIds);
+
+        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+        const postsWithProfiles = postsData.map(post => ({
+          ...post,
+          profiles: profilesMap.get(post.user_id),
+        }));
+
+        setPosts(postsWithProfiles);
+      } else {
+        setPosts([]);
+      }
+    } catch (error) {
+      console.error('Error fetching activity:', error);
+      setPosts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now - date) / 1000);
+
+    if (diffInSeconds < 60) {
+      return 'just now';
+    } else if (diffInSeconds < 3600) {
+      const minutes = Math.floor(diffInSeconds / 60);
+      return `${minutes}m ago`;
+    } else if (diffInSeconds < 86400) {
+      const hours = Math.floor(diffInSeconds / 3600);
+      return `${hours}h ago`;
+    } else if (diffInSeconds < 604800) {
+      const days = Math.floor(diffInSeconds / 86400);
+      return `${days}d ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
+
+  if (loading) {
+    return <p className="activity-count">Loading activity...</p>;
+  }
+
+  if (following.length === 0) {
+    return (
+      <div className="activity-placeholder">
+        <p>Start following people to see their activity here!</p>
+        <p className="activity-count">Following {following.length} {following.length === 1 ? 'person' : 'people'}</p>
+      </div>
+    );
+  }
+
+  if (posts.length === 0) {
+    return (
+      <div className="activity-placeholder">
+        <p>No recent activity from people you follow.</p>
+        <p className="activity-count">Following {following.length} {following.length === 1 ? 'person' : 'people'}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="activity-feed">
+      <p className="activity-count">Following {following.length} {following.length === 1 ? 'person' : 'people'}</p>
+      <div className="activity-posts">
+        {posts.map((post) => (
+          <div key={post.id} className="activity-post">
+            <div 
+              className="activity-post-author"
+              onClick={() => onViewProfile && onViewProfile(post.user_id)}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="activity-post-avatar">
+                {post.profiles?.avatar_url ? (
+                  <img src={post.profiles.avatar_url} alt={post.profiles.nickname} />
+                ) : (
+                  <div className="activity-post-avatar-placeholder">
+                    {post.profiles?.nickname?.[0]?.toUpperCase() || 'U'}
+                  </div>
+                )}
+              </div>
+              <span className="activity-post-name">{post.profiles?.nickname || 'User'}</span>
+              <span className="activity-post-time">{formatDate(post.created_at)}</span>
+            </div>
+            <p className="activity-post-content">{post.content}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Friends({ onViewProfile }) {
   const { user } = useAuth();
   const { following, loading: followsLoading, fetchFollows } = useFollows(user?.id);
@@ -227,14 +359,7 @@ export default function Friends({ onViewProfile }) {
 
       <div className="friends-activity-section">
         <h2>Friends Activity</h2>
-        <div className="activity-placeholder">
-          <p>Friends activity will appear here once messaging and posting features are added!</p>
-          {followsLoading ? (
-            <p className="activity-count">Loading...</p>
-          ) : (
-            <p className="activity-count">Following {following.length} {following.length === 1 ? 'person' : 'people'}</p>
-          )}
-        </div>
+        <FriendsActivity following={following} onViewProfile={onViewProfile} />
       </div>
     </div>
   );
