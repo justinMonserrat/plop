@@ -26,7 +26,10 @@ export function useProfile(userId) {
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching profile:', error);
+        // Only log if it's not a network error (which will be handled by catch)
+        if (error.message && !error.message.includes('Failed to fetch') && !error.message.includes('ERR_NAME_NOT_RESOLVED')) {
+          console.error('Error fetching profile:', error);
+        }
       }
 
       if (data) {

@@ -1,14 +1,24 @@
 import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useProfile } from "../hooks/useProfile";
 
-export default function Navbar({ currentPage, onPageChange }) {
+export default function Navbar() {
   const { user } = useAuth();
   const { profile } = useProfile();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const handleNavClick = (page) => {
-    onPageChange(page);
+  const isActive = (path) => {
+    if (path === '/profile') {
+      return location.pathname === '/profile' || location.pathname.startsWith('/profile/');
+    }
+    return location.pathname === path;
+  };
+
+  const handleNavClick = (path) => {
+    navigate(path);
     setIsMobileMenuOpen(false);
   };
 
@@ -30,41 +40,41 @@ export default function Navbar({ currentPage, onPageChange }) {
       </div>
       <div className={`navbar-links ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
         <button
-          className={`nav-link ${currentPage === "home" ? "active" : ""}`}
-          onClick={() => handleNavClick("home")}
+          className={`nav-link ${isActive('/home') || location.pathname === '/' ? "active" : ""}`}
+          onClick={() => handleNavClick('/home')}
         >
           Home
         </button>
         <button
-          className={`nav-link ${currentPage === "friends" ? "active" : ""}`}
-          onClick={() => handleNavClick("friends")}
+          className={`nav-link ${isActive('/friends') ? "active" : ""}`}
+          onClick={() => handleNavClick('/friends')}
         >
           Friends
         </button>
         <button
-          className={`nav-link ${currentPage === "blog" ? "active" : ""}`}
-          onClick={() => handleNavClick("blog")}
+          className={`nav-link ${isActive('/blog') ? "active" : ""}`}
+          onClick={() => handleNavClick('/blog')}
         >
           Blog
         </button>
         <button
-          className={`nav-link ${currentPage === "messages" ? "active" : ""}`}
-          onClick={() => handleNavClick("messages")}
+          className={`nav-link ${isActive('/messages') ? "active" : ""}`}
+          onClick={() => handleNavClick('/messages')}
         >
           Messages
         </button>
         <button
-          className={`nav-link profile-nav-link ${currentPage === "profile" ? "active" : ""}`}
-          onClick={() => handleNavClick("profile")}
+          className={`nav-link profile-nav-link ${isActive('/profile') ? "active" : ""}`}
+          onClick={() => handleNavClick('/profile')}
         >
           Profile
         </button>
       </div>
       <div className="navbar-user">
         <button
-          className={`profile-nav-btn ${currentPage === "profile" ? "active" : ""}`}
+          className={`profile-nav-btn ${isActive('/profile') ? "active" : ""}`}
           onClick={() => {
-            handleNavClick("profile");
+            handleNavClick('/profile');
           }}
         >
           <div className="profile-nav-avatar">

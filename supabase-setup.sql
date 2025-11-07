@@ -83,6 +83,26 @@ CREATE TABLE IF NOT EXISTS messages (
   CHECK (content IS NOT NULL OR image_url IS NOT NULL)
 );
 
+-- Create post_likes table
+CREATE TABLE IF NOT EXISTS post_likes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  post_id UUID REFERENCES posts(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(post_id, user_id)
+);
+
+-- Create comments table
+CREATE TABLE IF NOT EXISTS comments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  post_id UUID REFERENCES posts(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  content TEXT NOT NULL,
+  parent_id UUID REFERENCES comments(id) ON DELETE CASCADE, -- NULL for top-level comments, UUID for replies
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Add chat_id column if it doesn't exist (for migration)
 DO $$
 BEGIN
@@ -189,6 +209,8 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE post_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- DROP EXISTING POLICIES (if they exist)
@@ -221,6 +243,15 @@ DROP POLICY IF EXISTS "Users can view messages in their chats" ON messages;
 DROP POLICY IF EXISTS "Users can create messages in their chats" ON messages;
 DROP POLICY IF EXISTS "Users can update their own messages" ON messages;
 DROP POLICY IF EXISTS "Users can delete their own messages" ON messages;
+
+DROP POLICY IF EXISTS "Users can view all post likes" ON post_likes;
+DROP POLICY IF EXISTS "Users can like posts" ON post_likes;
+DROP POLICY IF EXISTS "Users can unlike posts" ON post_likes;
+
+DROP POLICY IF EXISTS "Users can view all comments" ON comments;
+DROP POLICY IF EXISTS "Users can create comments" ON comments;
+DROP POLICY IF EXISTS "Users can update their own comments" ON comments;
+DROP POLICY IF EXISTS "Users can delete their own comments" ON comments;
 
 DROP POLICY IF EXISTS "Avatar images are publicly accessible" ON storage.objects;
 DROP POLICY IF EXISTS "Users can upload their own avatar" ON storage.objects;
@@ -367,6 +398,29 @@ CREATE POLICY "Users can update their own messages" ON messages
 
 CREATE POLICY "Users can delete their own messages" ON messages
   FOR DELETE USING (auth.uid() = sender_id);
+
+-- Post likes policies
+CREATE POLICY "Users can view all post likes" ON post_likes
+  FOR SELECT USING (true);
+
+CREATE POLICY "Users can like posts" ON post_likes
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can unlike posts" ON post_likes
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Comments policies
+CREATE POLICY "Users can view all comments" ON comments
+  FOR SELECT USING (true);
+
+CREATE POLICY "Users can create comments" ON comments
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own comments" ON comments
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own comments" ON comments
+  FOR DELETE USING (auth.uid() = user_id);
 
 -- ============================================
 -- CREATE STORAGE BUCKETS

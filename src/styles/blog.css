@@ -175,6 +175,7 @@
   display: block;
   margin-left: auto;
   margin-right: auto;
+  background: var(--bg-secondary, #2d4a6f);
 }
 
 .image-preview {
@@ -352,6 +353,9 @@
     max-height: 400px;
     box-sizing: border-box;
     display: block;
+    object-fit: contain;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .image-preview {

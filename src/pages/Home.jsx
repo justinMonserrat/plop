@@ -8,21 +8,28 @@ const POSTS_PER_PAGE = 20;
 
 export default function Home({ onViewProfile }) {
   const { user } = useAuth();
-  const { following } = useFollows(user?.id);
+  const { following, loading: followsLoading } = useFollows(user?.id);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
+  const [expandedComments, setExpandedComments] = useState(new Set());
+  const [commentInputs, setCommentInputs] = useState({});
+  const [replyInputs, setReplyInputs] = useState({});
 
+  // Wait for following to load before fetching posts
   useEffect(() => {
-    if (user?.id) {
+    if (user?.id && !followsLoading) {
+      // Only fetch once when user and following are ready
+      // This prevents fetching twice - once with empty following, once with loaded following
       setPosts([]);
       setPage(0);
       setHasMore(true);
       fetchPosts(0, true);
     }
-  }, [user?.id, following]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, followsLoading]); // Wait for following to finish loading
 
   const fetchPosts = async (pageNum = 0, reset = false) => {
     if (!user?.id) return;
@@ -60,24 +67,95 @@ export default function Home({ onViewProfile }) {
 
       setHasMore(postsData.length === POSTS_PER_PAGE);
 
-      // Fetch profile data separately
+      // Show posts immediately with basic data (progressive loading)
       const userIdsFromPosts = [...new Set(postsData.map(p => p.user_id))];
       const { data: profilesData } = await supabase
         .from('profiles')
         .select('id, nickname, avatar_url')
         .in('id', userIdsFromPosts);
 
-      const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+      const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
+
+      // Show posts with profiles first (faster initial render)
       const postsWithProfiles = postsData.map(post => ({
         ...post,
         profiles: profilesMap.get(post.user_id),
+        likes: [],
+        likeCount: 0,
+        isLiked: false,
+        comments: [],
+        commentCount: 0,
       }));
 
       if (reset) {
         setPosts(postsWithProfiles);
+        setLoading(false); // Show posts immediately
       } else {
         setPosts(prev => [...prev, ...postsWithProfiles]);
+        setLoadingMore(false);
       }
+
+      // Then fetch likes and comments in parallel (non-blocking)
+      const postIds = postsData.map(p => p.id);
+      
+      const [likesResult, commentsResult] = await Promise.all([
+        supabase
+          .from('post_likes')
+          .select('*')
+          .in('post_id', postIds),
+        supabase
+          .from('comments')
+          .select('*')
+          .in('post_id', postIds)
+          .order('created_at', { ascending: true })
+      ]);
+
+      const likesData = likesResult.data || [];
+      const commentsData = commentsResult.data || [];
+
+      // Get commenter profiles
+      const commenterIds = [...new Set(commentsData.map(c => c.user_id))];
+      const { data: commenterProfiles } = commenterIds.length > 0
+        ? await supabase
+            .from('profiles')
+            .select('id, nickname, avatar_url')
+            .in('id', commenterIds)
+        : { data: [] };
+
+      const commenterProfilesMap = new Map((commenterProfiles || []).map(p => [p.id, p]));
+
+      // Update posts with likes and comments
+      setPosts(prev => prev.map(post => {
+        const postIndex = postsData.findIndex(p => p.id === post.id);
+        if (postIndex === -1) return post; // Keep existing posts that weren't just fetched
+
+        const likes = likesData.filter(l => l.post_id === post.id);
+        const isLiked = likes.some(l => l.user_id === user.id);
+        const comments = commentsData.filter(c => c.post_id === post.id && !c.parent_id);
+        const allComments = commentsData.filter(c => c.post_id === post.id);
+        
+        // Build comment tree
+        const commentsWithReplies = comments.map(comment => {
+          const replies = allComments.filter(c => c.parent_id === comment.id);
+          return {
+            ...comment,
+            author: commenterProfilesMap.get(comment.user_id),
+            replies: replies.map(reply => ({
+              ...reply,
+              author: commenterProfilesMap.get(reply.user_id),
+            })),
+          };
+        });
+
+        return {
+          ...post,
+          likes,
+          likeCount: likes.length,
+          isLiked,
+          comments: commentsWithReplies,
+          commentCount: allComments.length,
+        };
+      }));
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
@@ -92,6 +170,135 @@ export default function Home({ onViewProfile }) {
       setPage(nextPage);
       fetchPosts(nextPage, false);
     }
+  };
+
+  const handleLike = async (postId, isLiked) => {
+    if (!user?.id) return;
+
+    try {
+      if (isLiked) {
+        // Unlike
+        const { error } = await supabase
+          .from('post_likes')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+      } else {
+        // Like
+        const { error } = await supabase
+          .from('post_likes')
+          .insert({ post_id: postId, user_id: user.id });
+
+        if (error) throw error;
+      }
+
+      // Update local state
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          const newIsLiked = !isLiked;
+          const newLikes = newIsLiked
+            ? [...post.likes, { post_id: postId, user_id: user.id }]
+            : post.likes.filter(l => l.user_id !== user.id);
+          return {
+            ...post,
+            likes: newLikes,
+            likeCount: newLikes.length,
+            isLiked: newIsLiked,
+          };
+        }
+        return post;
+      }));
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      alert('Error updating like. Please try again.');
+    }
+  };
+
+  const handleComment = async (postId, content, parentId = null) => {
+    if (!user?.id || !content.trim()) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .insert({
+          post_id: postId,
+          user_id: user.id,
+          content: content.trim(),
+          parent_id: parentId,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Fetch commenter profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, nickname, avatar_url')
+        .eq('id', user.id)
+        .single();
+
+      const newComment = {
+        ...data,
+        author: profile,
+        replies: [],
+      };
+
+      // Update local state
+      setPosts(prev => prev.map(post => {
+        if (post.id === postId) {
+          if (parentId) {
+            // Reply to comment
+            const updatedComments = post.comments.map(comment => {
+              if (comment.id === parentId) {
+                return {
+                  ...comment,
+                  replies: [...comment.replies, newComment],
+                };
+              }
+              return comment;
+            });
+            return {
+              ...post,
+              comments: updatedComments,
+              commentCount: post.commentCount + 1,
+            };
+          } else {
+            // New top-level comment
+            return {
+              ...post,
+              comments: [...post.comments, newComment],
+              commentCount: post.commentCount + 1,
+            };
+          }
+        }
+        return post;
+      }));
+
+      // Clear input
+      if (parentId) {
+        setReplyInputs(prev => ({ ...prev, [parentId]: '' }));
+      } else {
+        setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+      }
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      alert('Error adding comment. Please try again.');
+    }
+  };
+
+  const toggleComments = (postId) => {
+    setExpandedComments(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(postId)) {
+        newSet.delete(postId);
+      } else {
+        newSet.add(postId);
+      }
+      return newSet;
+    });
   };
 
   const formatDate = (dateString) => {
@@ -115,10 +322,29 @@ export default function Home({ onViewProfile }) {
     }
   };
 
-  if (loading) {
+  // Show skeletons while loading following or posts
+  if (followsLoading || loading) {
     return (
       <div className="page-content">
-        <p>Loading feed...</p>
+        <h1>Home Feed</h1>
+        <div className="posts-feed">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="post-card" style={{ opacity: 0.6 }}>
+              <div className="post-header">
+                <div className="post-author">
+                  <div className="post-avatar">
+                    <div className="post-avatar-placeholder">...</div>
+                  </div>
+                  <div className="post-author-info">
+                    <span className="post-author-name" style={{ backgroundColor: 'var(--bg-secondary)', width: '100px', height: '16px', display: 'block', borderRadius: '4px' }}></span>
+                    <span className="post-time" style={{ backgroundColor: 'var(--bg-secondary)', width: '60px', height: '12px', display: 'block', borderRadius: '4px', marginTop: '4px' }}></span>
+                  </div>
+                </div>
+              </div>
+              <div className="post-content" style={{ backgroundColor: 'var(--bg-secondary)', height: '60px', borderRadius: '4px', marginTop: '1rem' }}></div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -165,6 +391,122 @@ export default function Home({ onViewProfile }) {
                   )}
                   {post.content && <p>{post.content}</p>}
                 </div>
+                
+                <div className="post-actions">
+                  <button
+                    className={`like-btn ${post.isLiked ? 'liked' : ''}`}
+                    onClick={() => handleLike(post.id, post.isLiked)}
+                  >
+                    {post.isLiked ? '❤️' : '🤍'} {post.likeCount || 0}
+                  </button>
+                  <button
+                    className="comment-btn"
+                    onClick={() => toggleComments(post.id)}
+                  >
+                    💬 {post.commentCount || 0}
+                  </button>
+                </div>
+
+                {expandedComments.has(post.id) && (
+                  <div className="comments-section">
+                    <div className="comments-list">
+                      {post.comments?.length > 0 ? (
+                        post.comments.map(comment => (
+                          <div key={comment.id} className="comment-item">
+                            <div className="comment-header">
+                              <div 
+                                className="comment-author"
+                                onClick={() => onViewProfile && onViewProfile(comment.user_id)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <div className="comment-avatar">
+                                  {comment.author?.avatar_url ? (
+                                    <img src={comment.author.avatar_url} alt={comment.author.nickname} />
+                                  ) : (
+                                    <div className="comment-avatar-placeholder">
+                                      {comment.author?.nickname?.[0]?.toUpperCase() || 'U'}
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="comment-author-name">
+                                  {comment.author?.nickname || 'User'}
+                                </span>
+                              </div>
+                              <span className="comment-time">{formatDate(comment.created_at)}</span>
+                            </div>
+                            <div className="comment-content">{comment.content}</div>
+                            
+                            {/* Replies */}
+                            {comment.replies?.length > 0 && (
+                              <div className="replies-list">
+                                {comment.replies.map(reply => (
+                                  <div key={reply.id} className="reply-item">
+                                    <div className="reply-header">
+                                      <div 
+                                        className="reply-author"
+                                        onClick={() => onViewProfile && onViewProfile(reply.user_id)}
+                                        style={{ cursor: 'pointer' }}
+                                      >
+                                        <div className="reply-avatar">
+                                          {reply.author?.avatar_url ? (
+                                            <img src={reply.author.avatar_url} alt={reply.author.nickname} />
+                                          ) : (
+                                            <div className="reply-avatar-placeholder">
+                                              {reply.author?.nickname?.[0]?.toUpperCase() || 'U'}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <span className="reply-author-name">
+                                          {reply.author?.nickname || 'User'}
+                                        </span>
+                                      </div>
+                                      <span className="reply-time">{formatDate(reply.created_at)}</span>
+                                    </div>
+                                    <div className="reply-content">{reply.content}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Reply input */}
+                            <div className="reply-input-wrapper">
+                              <input
+                                type="text"
+                                placeholder="Reply..."
+                                value={replyInputs[comment.id] || ''}
+                                onChange={(e) => setReplyInputs(prev => ({ ...prev, [comment.id]: e.target.value }))}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter' && e.target.value.trim()) {
+                                    handleComment(post.id, e.target.value, comment.id);
+                                  }
+                                }}
+                                className="reply-input"
+                              />
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="no-comments">No comments yet</div>
+                      )}
+                    </div>
+                    
+                    {/* Comment input */}
+                    <div className="comment-input-wrapper">
+                      <input
+                        type="text"
+                        placeholder="Write a comment..."
+                        value={commentInputs[post.id] || ''}
+                        onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && e.target.value.trim()) {
+                            handleComment(post.id, e.target.value);
+                          }
+                        }}
+                        className="comment-input"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

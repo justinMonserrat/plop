@@ -36,28 +36,37 @@ function FriendsActivity({ following, onViewProfile }) {
         throw error;
       }
 
-      // Fetch profile data separately
-      if (postsData && postsData.length > 0) {
-        const userIds = [...new Set(postsData.map(p => p.user_id))];
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('id, nickname, avatar_url')
-          .in('id', userIds);
-
-        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
-        const postsWithProfiles = postsData.map(post => ({
-          ...post,
-          profiles: profilesMap.get(post.user_id),
-        }));
-
-        setPosts(postsWithProfiles);
-      } else {
+      if (!postsData || postsData.length === 0) {
         setPosts([]);
+        setLoading(false);
+        return;
       }
+
+      // Show posts immediately
+      const postsWithProfiles = postsData.map(post => ({
+        ...post,
+        profiles: null,
+      }));
+      setPosts(postsWithProfiles);
+      setLoading(false); // Show posts immediately
+
+      // Load profiles in parallel (non-blocking)
+      const userIds = [...new Set(postsData.map(p => p.user_id))];
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, nickname, avatar_url')
+        .in('id', userIds);
+
+      const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
+      
+      // Update posts with profiles
+      setPosts(prev => prev.map(post => ({
+        ...post,
+        profiles: profilesMap.get(post.user_id),
+      })));
     } catch (error) {
       console.error('Error fetching activity:', error);
       setPosts([]);
-    } finally {
       setLoading(false);
     }
   };

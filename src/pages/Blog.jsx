@@ -42,6 +42,7 @@ export default function Blog({ onViewProfile }) {
       const { data: postsData, error } = await supabase
         .from('posts')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .range(pageNum * POSTS_PER_PAGE, (pageNum + 1) * POSTS_PER_PAGE - 1);
 
@@ -60,24 +61,39 @@ export default function Blog({ onViewProfile }) {
 
       setHasMore(postsData.length === POSTS_PER_PAGE);
 
-      // Fetch profile data separately
+      // Show posts immediately (progressive loading)
       const userIds = [...new Set(postsData.map(p => p.user_id))];
+      const postsWithProfiles = postsData.map(post => ({
+        ...post,
+        profiles: null, // Will be loaded next
+      }));
+
+      if (reset) {
+        setPosts(postsWithProfiles);
+        setLoading(false); // Show posts immediately
+      } else {
+        setPosts(prev => [...prev, ...postsWithProfiles]);
+        setLoadingMore(false);
+      }
+
+      // Load profiles in parallel (non-blocking)
       const { data: profilesData } = await supabase
         .from('profiles')
         .select('id, nickname, avatar_url')
         .in('id', userIds);
 
-      const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
-      const postsWithProfiles = postsData.map(post => ({
-        ...post,
-        profiles: profilesMap.get(post.user_id),
+      const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
+      
+      // Update posts with profiles
+      setPosts(prev => prev.map(post => {
+        const postIndex = postsData.findIndex(p => p.id === post.id);
+        if (postIndex === -1) return post; // Keep existing posts
+        
+        return {
+          ...post,
+          profiles: profilesMap.get(post.user_id),
+        };
       }));
-
-      if (reset) {
-        setPosts(postsWithProfiles);
-      } else {
-        setPosts(prev => [...prev, ...postsWithProfiles]);
-      }
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
@@ -345,7 +361,24 @@ export default function Blog({ onViewProfile }) {
       </div>
 
       {loading ? (
-        <p>Loading posts...</p>
+        <div className="posts-feed">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="post-card" style={{ opacity: 0.6 }}>
+              <div className="post-header">
+                <div className="post-author">
+                  <div className="post-avatar">
+                    <div className="post-avatar-placeholder">...</div>
+                  </div>
+                  <div className="post-author-info">
+                    <span className="post-author-name" style={{ backgroundColor: 'var(--bg-secondary)', width: '100px', height: '16px', display: 'block', borderRadius: '4px' }}></span>
+                    <span className="post-time" style={{ backgroundColor: 'var(--bg-secondary)', width: '60px', height: '12px', display: 'block', borderRadius: '4px', marginTop: '4px' }}></span>
+                  </div>
+                </div>
+              </div>
+              <div className="post-content" style={{ backgroundColor: 'var(--bg-secondary)', height: '60px', borderRadius: '4px', marginTop: '1rem' }}></div>
+            </div>
+          ))}
+        </div>
       ) : (
         <>
           <div className="posts-feed">

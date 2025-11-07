@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { supabase } from "./supabaseClient";
 import Auth from "./pages/Auth";
@@ -11,10 +12,9 @@ import Messages from "./pages/Messages";
 import Navbar from "./components/Navbar";
 import "./styles/navbar.css";
 
-export default function App() {
+function AppRoutes() {
   const { user } = useAuth();
-  const [currentPage, setCurrentPage] = useState("home");
-  const [viewingUserId, setViewingUserId] = useState(null);
+  const navigate = useNavigate();
   const [showResetPassword, setShowResetPassword] = useState(false);
 
   useEffect(() => {
@@ -47,59 +47,41 @@ export default function App() {
   }
 
   const handleViewProfile = (userId) => {
-    setViewingUserId(userId);
-    setCurrentPage("profile");
-  };
-
-  const handleBackToOwnProfile = () => {
-    setViewingUserId(null);
-    // Keep profile page active, just switch to own profile
-  };
-
-  // Reset viewingUserId when navigating away from profile
-  useEffect(() => {
-    if (currentPage !== "profile") {
-      setViewingUserId(null);
-    }
-  }, [currentPage]);
-
-  const renderPage = () => {
-    switch (currentPage) {
-      case "home":
-        return <Home onViewProfile={handleViewProfile} />;
-      case "profile":
-        return (
-          <Profile 
-            userId={viewingUserId} 
-            onViewProfile={handleViewProfile}
-            onBackToOwnProfile={handleBackToOwnProfile}
-          />
-        );
-      case "friends":
-        return <Friends onViewProfile={handleViewProfile} />;
-      case "blog":
-        return <Blog onViewProfile={handleViewProfile} />;
-      case "messages":
-        return <Messages onViewProfile={handleViewProfile} />;
-      default:
-        return <Home />;
+    if (userId === user.id) {
+      navigate('/profile');
+    } else {
+      navigate(`/profile/${userId}`);
     }
   };
 
   return (
     <div className="app-container">
-      <Navbar 
-        currentPage={currentPage} 
-        onPageChange={(page) => {
-          setCurrentPage(page);
-          if (page !== "profile") {
-            setViewingUserId(null);
-          }
-        }} 
-      />
+      <Navbar />
       <main className="main-content">
-        {renderPage()}
+        <Routes>
+          <Route path="/" element={<Home onViewProfile={handleViewProfile} />} />
+          <Route path="/home" element={<Home onViewProfile={handleViewProfile} />} />
+          <Route path="/profile" element={<Profile onViewProfile={handleViewProfile} />} />
+          <Route path="/profile/:userId" element={<ProfileWithUserId onViewProfile={handleViewProfile} />} />
+          <Route path="/friends" element={<Friends onViewProfile={handleViewProfile} />} />
+          <Route path="/blog" element={<Blog onViewProfile={handleViewProfile} />} />
+          <Route path="/messages" element={<Messages onViewProfile={handleViewProfile} />} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
+        </Routes>
       </main>
     </div>
+  );
+}
+
+function ProfileWithUserId({ onViewProfile }) {
+  const { userId } = useParams();
+  return <Profile userId={userId} onViewProfile={onViewProfile} />;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   );
 }

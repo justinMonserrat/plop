@@ -19,7 +19,10 @@ export function useFollows(userId) {
         .eq('following_id', userId);
 
       if (followersError) {
-        console.error('Error fetching followers:', followersError);
+        // Only log if it's not a network error
+        if (followersError.message && !followersError.message.includes('Failed to fetch') && !followersError.message.includes('ERR_NAME_NOT_RESOLVED')) {
+          console.error('Error fetching followers:', followersError);
+        }
       }
 
       if (followersData && followersData.length > 0) {
@@ -49,7 +52,10 @@ export function useFollows(userId) {
         .eq('follower_id', userId);
 
       if (followingError) {
-        console.error('Error fetching following:', followingError);
+        // Only log if it's not a network error
+        if (followingError.message && !followingError.message.includes('Failed to fetch') && !followingError.message.includes('ERR_NAME_NOT_RESOLVED')) {
+          console.error('Error fetching following:', followingError);
+        }
       }
 
       if (followingData && followingData.length > 0) {

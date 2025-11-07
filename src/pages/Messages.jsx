@@ -24,6 +24,7 @@ export default function Messages({ onViewProfile }) {
   const messagesListRef = useRef(null);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showGroupChatModal, setShowGroupChatModal] = useState(false);
+  const [showChatOptionsModal, setShowChatOptionsModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [groupChatName, setGroupChatName] = useState("");
   const [selectedFriends, setSelectedFriends] = useState([]);
@@ -73,83 +74,116 @@ export default function Messages({ onViewProfile }) {
     
     setLoading(true);
     try {
-      // Get all chats user is a member of
-      const { data: chatsData, error: chatsError } = await supabase
-        .from('chats')
-        .select('*')
-        .order('updated_at', { ascending: false });
+      // Fetch chats and members in parallel
+      const [chatsResult, membersResult] = await Promise.all([
+        supabase
+          .from('chats')
+          .select('*')
+          .order('updated_at', { ascending: false }),
+        supabase
+          .from('chat_members')
+          .select('*')
+          .eq('user_id', user.id)
+      ]);
 
-      if (chatsError) {
-        console.error('Error fetching chats:', chatsError);
-        throw chatsError;
+      if (chatsResult.error) {
+        console.error('Error fetching chats:', chatsResult.error);
+        throw chatsResult.error;
       }
 
-      // Get chat members for each chat
-      const chatIds = chatsData?.map(c => c.id) || [];
-      if (chatIds.length === 0) {
+      if (membersResult.error) {
+        console.error('Error fetching chat members:', membersResult.error);
+        throw membersResult.error;
+      }
+
+      const chatsData = chatsResult.data || [];
+      const membersData = membersResult.data || [];
+
+      if (chatsData.length === 0 || membersData.length === 0) {
         setConversations([]);
         setLoading(false);
         return;
       }
 
-      const { data: membersData, error: membersError } = await supabase
-        .from('chat_members')
-        .select('*')
-        .in('chat_id', chatIds);
+      // Filter to only chats user is in
+      const userChatIds = new Set(membersData.map(m => m.chat_id));
+      const userChats = chatsData.filter(c => userChatIds.has(c.id));
 
-      if (membersError) {
-        console.error('Error fetching chat members:', membersError);
-        throw membersError;
+      if (userChats.length === 0) {
+        setConversations([]);
+        setLoading(false);
+        return;
       }
 
-      // Filter to only chats user is in
-      const userChatIds = new Set(
-        membersData?.filter(m => m.user_id === user.id).map(m => m.chat_id) || []
-      );
-      const userChats = chatsData?.filter(c => userChatIds.has(c.id)) || [];
+      // Show conversations immediately with basic info
+      const conversationsWithBasicInfo = userChats.map((chat) => {
+        const isGroupChat = chat.name !== null;
+        return {
+          id: chat.id,
+          name: chat.name || 'Chat',
+          isGroupChat,
+          avatar: null,
+          memberIds: [],
+          otherPersonId: null,
+          members: [],
+          lastMessage: null,
+          unreadCount: 0,
+          updatedAt: chat.updated_at,
+        };
+      });
 
-      // Get last message for each chat
-      const { data: lastMessagesData } = await supabase
-        .from('messages')
-        .select('*')
-        .in('chat_id', userChats.map(c => c.id))
-        .order('created_at', { ascending: false });
+      setConversations(conversationsWithBasicInfo);
+      setLoading(false); // Show conversations immediately
+
+      // Fetch last messages and all members in parallel
+      const chatIds = userChats.map(c => c.id);
+      const [lastMessagesResult, allMembersResult] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('*')
+          .in('chat_id', chatIds)
+          .order('created_at', { ascending: false })
+          .limit(100), // Limit to avoid fetching too many
+        supabase
+          .from('chat_members')
+          .select('*')
+          .in('chat_id', chatIds)
+      ]);
+
+      const lastMessagesData = lastMessagesResult.data || [];
+      const allMembersData = allMembersResult.data || [];
 
       // Group last messages by chat_id
       const lastMessagesMap = new Map();
-      lastMessagesData?.forEach(msg => {
+      lastMessagesData.forEach(msg => {
         if (!lastMessagesMap.has(msg.chat_id)) {
           lastMessagesMap.set(msg.chat_id, msg);
         }
       });
 
-      // Build conversations with basic info only (load member details on demand)
+      // Build conversations with member info
       const conversationsWithMembers = userChats.map((chat) => {
-        const chatMemberIds = membersData?.filter(m => m.chat_id === chat.id).map(m => m.user_id) || [];
+        const chatMemberIds = allMembersData.filter(m => m.chat_id === chat.id).map(m => m.user_id);
         const lastMessage = lastMessagesMap.get(chat.id);
-        
-        // For 1-on-1 chats, find the other person's ID (we'll fetch profile later if needed)
         const isGroupChat = chat.name !== null;
         const otherPersonId = !isGroupChat ? chatMemberIds.find(id => id !== user.id) : null;
-        
-        // Count unread messages
         const unreadCount = lastMessage && lastMessage.sender_id !== user.id && !lastMessage.read_at ? 1 : 0;
 
         return {
           id: chat.id,
           name: chat.name || 'Chat',
           isGroupChat,
-          avatar: null, // Load on demand
+          avatar: null,
           memberIds: chatMemberIds,
-          otherPersonId, // For 1-on-1 chats
-          members: [], // Load on demand
+          otherPersonId,
+          members: [],
           lastMessage,
           unreadCount,
           updatedAt: chat.updated_at,
         };
       });
 
-      // Fetch only the other person's profile for 1-on-1 chats (lightweight)
+      // Fetch profiles for 1-on-1 chats (non-blocking update)
       const otherPersonIds = conversationsWithMembers
         .filter(c => !c.isGroupChat && c.otherPersonId)
         .map(c => c.otherPersonId);
@@ -160,7 +194,7 @@ export default function Messages({ onViewProfile }) {
           .select('id, nickname, avatar_url')
           .in('id', otherPersonIds);
 
-        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+        const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
         conversationsWithMembers.forEach(conv => {
           if (!conv.isGroupChat && conv.otherPersonId) {
             const profile = profilesMap.get(conv.otherPersonId);
@@ -182,7 +216,6 @@ export default function Messages({ onViewProfile }) {
       setConversations(conversationsWithMembers);
     } catch (error) {
       console.error('Error fetching conversations:', error);
-    } finally {
       setLoading(false);
     }
   };
@@ -753,32 +786,35 @@ export default function Messages({ onViewProfile }) {
   if (loading) {
     return (
       <div className="page-content">
-        <p>Loading messages...</p>
+        <div className="messages-container">
+          <div className="conversations-sidebar" style={{ opacity: 0.6 }}>
+            <div className="conversations-header">
+              <h2>Conversations</h2>
+            </div>
+            <div className="conversations-list">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="conversation-item" style={{ backgroundColor: 'var(--bg-secondary)', height: '60px', borderRadius: '4px', marginBottom: '0.5rem' }}></div>
+              ))}
+            </div>
+          </div>
+          <div className="messages-main" style={{ opacity: 0.6, backgroundColor: 'var(--bg-secondary)', height: '400px', borderRadius: '4px' }}></div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="page-content messages-container">
+    <div className={`page-content messages-container ${selectedConversation ? 'has-conversation' : ''}`}>
       <div className="conversations-sidebar">
         <div className="conversations-header">
           <h2>Messages</h2>
-          <div className="new-chat-buttons">
-            <button
-              className="new-chat-btn"
-              onClick={() => setShowNewChatModal(true)}
-              title="New 1-on-1 chat"
-            >
-              + 1-on-1
-            </button>
-            <button
-              className="new-group-btn"
-              onClick={() => setShowGroupChatModal(true)}
-              title="New group chat"
-            >
-              + Group
-            </button>
-          </div>
+          <button
+            className="new-chat-btn"
+            onClick={() => setShowChatOptionsModal(true)}
+            title="New chat"
+          >
+            + New Chat
+          </button>
         </div>
         {conversations.length === 0 ? (
           <p className="empty-state">No conversations yet. Start a new conversation!</p>
@@ -820,9 +856,8 @@ export default function Messages({ onViewProfile }) {
         )}
       </div>
 
-      <div className="messages-main">
-        {selectedConversation ? (
-          <>
+      {selectedConversation ? (
+        <div className="messages-main">
             <div className="messages-header">
               <div className="messages-partner-info">
                 <div 
@@ -1005,13 +1040,44 @@ export default function Messages({ onViewProfile }) {
                 {uploadingImage ? 'Uploading...' : sending ? 'Sending...' : 'Send'}
               </button>
             </form>
-          </>
-        ) : (
-          <div className="no-conversation">
-            <p>Select a conversation or start a new one</p>
+        </div>
+      ) : (
+        <div className="messages-main no-conversation">
+          <p>Select a conversation or start a new one</p>
+        </div>
+      )}
+
+      {/* Chat Options Modal (choose 1-on-1 or group) */}
+      {showChatOptionsModal && (
+        <div className="modal-overlay" onClick={() => setShowChatOptionsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>New Chat</h3>
+            <div className="chat-options-buttons">
+              <button
+                className="chat-option-btn"
+                onClick={() => {
+                  setShowChatOptionsModal(false);
+                  setShowNewChatModal(true);
+                }}
+              >
+                💬 1-on-1 Chat
+              </button>
+              <button
+                className="chat-option-btn"
+                onClick={() => {
+                  setShowChatOptionsModal(false);
+                  setShowGroupChatModal(true);
+                }}
+              >
+                👥 Group Chat
+              </button>
+            </div>
+            <button className="close-modal-btn" onClick={() => setShowChatOptionsModal(false)}>
+              Cancel
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* New 1-on-1 Chat Modal */}
       {showNewChatModal && (
