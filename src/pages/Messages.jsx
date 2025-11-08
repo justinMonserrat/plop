@@ -28,7 +28,6 @@ export default function Messages({ onViewProfile }) {
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [groupChatName, setGroupChatName] = useState("");
   const [selectedFriends, setSelectedFriends] = useState([]);
-  const [groupChatMembers, setGroupChatMembers] = useState([]);
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const [isMobile, setIsMobile] = useState(() => {

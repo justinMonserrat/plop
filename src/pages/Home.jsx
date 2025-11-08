@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useFollows } from "../hooks/useFollows";
+import { useProfile } from "../hooks/useProfile";
 import { supabase } from "../supabaseClient";
 import "../styles/home.css";
+import { notifyUser } from "../utils/notifications";
 
 const POSTS_PER_PAGE = 20;
 
 export default function Home({ onViewProfile }) {
   const { user } = useAuth();
-  const { following, loading: followsLoading } = useFollows(user?.id);
+  const { profile: selfProfile } = useProfile(user?.id);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -18,22 +19,35 @@ export default function Home({ onViewProfile }) {
   const [commentInputs, setCommentInputs] = useState({});
   const [replyInputs, setReplyInputs] = useState({});
 
-  // Wait for following to load before fetching posts
   useEffect(() => {
-    if (user?.id && !followsLoading) {
-      // Only fetch once when user and following are ready
-      // This prevents fetching twice - once with empty following, once with loaded following
-      setPosts([]);
-      setPage(0);
-      setHasMore(true);
-      fetchPosts(0, true);
-    }
+    setPosts([]);
+    setPage(0);
+    setHasMore(true);
+    fetchPosts(0, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, followsLoading]); // Wait for following to finish loading
+  }, [user?.id]);
+
+  useEffect(() => {
+    const channel = supabase.channel('home-feed-updates');
+
+    channel.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'posts' },
+      () => {
+        setPage(0);
+        setHasMore(true);
+        fetchPosts(0, true);
+      }
+    );
+
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const fetchPosts = async (pageNum = 0, reset = false) => {
-    if (!user?.id) return;
-    
     if (reset) {
       setLoading(true);
     } else {
@@ -41,14 +55,9 @@ export default function Home({ onViewProfile }) {
     }
 
     try {
-      // Get posts from users we're following, plus our own posts
-      const followingIds = following.map(f => f.id);
-      const userIds = [...followingIds, user.id];
-
       const { data: postsData, error } = await supabase
         .from('posts')
         .select('*')
-        .in('user_id', userIds)
         .order('created_at', { ascending: false })
         .range(pageNum * POSTS_PER_PAGE, (pageNum + 1) * POSTS_PER_PAGE - 1);
 
@@ -97,7 +106,7 @@ export default function Home({ onViewProfile }) {
 
       // Then fetch likes and comments in parallel (non-blocking)
       const postIds = postsData.map(p => p.id);
-      
+
       const [likesResult, commentsResult] = await Promise.all([
         supabase
           .from('post_likes')
@@ -117,9 +126,9 @@ export default function Home({ onViewProfile }) {
       const commenterIds = [...new Set(commentsData.map(c => c.user_id))];
       const { data: commenterProfiles } = commenterIds.length > 0
         ? await supabase
-            .from('profiles')
-            .select('id, nickname, avatar_url')
-            .in('id', commenterIds)
+          .from('profiles')
+          .select('id, nickname, avatar_url')
+          .in('id', commenterIds)
         : { data: [] };
 
       const commenterProfilesMap = new Map((commenterProfiles || []).map(p => [p.id, p]));
@@ -130,10 +139,10 @@ export default function Home({ onViewProfile }) {
         if (postIndex === -1) return post; // Keep existing posts that weren't just fetched
 
         const likes = likesData.filter(l => l.post_id === post.id);
-        const isLiked = likes.some(l => l.user_id === user.id);
+        const isLiked = user?.id ? likes.some(l => l.user_id === user.id) : false;
         const comments = commentsData.filter(c => c.post_id === post.id && !c.parent_id);
         const allComments = commentsData.filter(c => c.post_id === post.id);
-        
+
         // Build comment tree
         const commentsWithReplies = comments.map(comment => {
           const replies = allComments.filter(c => c.parent_id === comment.id);
@@ -175,6 +184,8 @@ export default function Home({ onViewProfile }) {
   const handleLike = async (postId, isLiked) => {
     if (!user?.id) return;
 
+    const targetPost = posts.find((post) => post.id === postId);
+
     try {
       if (isLiked) {
         // Unlike
@@ -192,6 +203,21 @@ export default function Home({ onViewProfile }) {
           .insert({ post_id: postId, user_id: user.id });
 
         if (error) throw error;
+
+        if (targetPost && targetPost.user_id && targetPost.user_id !== user.id) {
+          const actorName = selfProfile?.nickname || user?.email?.split('@')[0] || 'Someone';
+          await notifyUser({
+            recipientId: targetPost.user_id,
+            actorId: user.id,
+            type: "post_like",
+            postId,
+            payload: {
+              actorName,
+              postId,
+              snippet: targetPost.content?.slice(0, 80) || "",
+            },
+          });
+        }
       }
 
       // Update local state
@@ -277,6 +303,42 @@ export default function Home({ onViewProfile }) {
         return post;
       }));
 
+      const actorName = selfProfile?.nickname || user?.email?.split('@')[0] || 'Someone';
+      const targetPost = posts.find((post) => post.id === postId);
+      if (!parentId) {
+        if (targetPost?.user_id && targetPost.user_id !== user.id) {
+          await notifyUser({
+            recipientId: targetPost.user_id,
+            actorId: user.id,
+            type: "post_comment",
+            postId,
+            payload: {
+              actorName,
+              postId,
+              snippet: content.trim().slice(0, 80),
+            },
+          });
+        }
+      } else {
+        const postForReply = posts.find((post) => post.id === postId);
+        const parentComment = postForReply?.comments?.find((comment) => comment.id === parentId);
+        if (parentComment?.user_id && parentComment.user_id !== user.id) {
+          await notifyUser({
+            recipientId: parentComment.user_id,
+            actorId: user.id,
+            type: "comment_reply",
+            postId,
+            commentId: parentId,
+            payload: {
+              actorName,
+              postId,
+              commentId: parentId,
+              snippet: content.trim().slice(0, 80),
+            },
+          });
+        }
+      }
+
       // Clear input
       if (parentId) {
         setReplyInputs(prev => ({ ...prev, [parentId]: '' }));
@@ -323,7 +385,7 @@ export default function Home({ onViewProfile }) {
   };
 
   // Show skeletons while loading following or posts
-  if (followsLoading || loading) {
+  if (loading) {
     return (
       <div className="page-content">
         <h1>Home Feed</h1>
@@ -352,10 +414,10 @@ export default function Home({ onViewProfile }) {
   return (
     <div className="page-content">
       <h1>Home Feed</h1>
-      
+
       {posts.length === 0 && !loading ? (
         <div className="empty-feed">
-          <p>No posts yet! Start following people or create your first post on the Blog page.</p>
+          <p>No posts yet! Be the first to share something on the Blog page.</p>
         </div>
       ) : (
         <>
@@ -363,7 +425,7 @@ export default function Home({ onViewProfile }) {
             {posts.map((post) => (
               <div key={post.id} className="post-card">
                 <div className="post-header">
-                  <div 
+                  <div
                     className="post-author"
                     onClick={() => onViewProfile && onViewProfile(post.user_id)}
                     style={{ cursor: 'pointer' }}
@@ -391,7 +453,7 @@ export default function Home({ onViewProfile }) {
                   )}
                   {post.content && <p>{post.content}</p>}
                 </div>
-                
+
                 <div className="post-actions">
                   <button
                     className={`like-btn ${post.isLiked ? 'liked' : ''}`}
@@ -414,7 +476,7 @@ export default function Home({ onViewProfile }) {
                         post.comments.map(comment => (
                           <div key={comment.id} className="comment-item">
                             <div className="comment-header">
-                              <div 
+                              <div
                                 className="comment-author"
                                 onClick={() => onViewProfile && onViewProfile(comment.user_id)}
                                 style={{ cursor: 'pointer' }}
@@ -435,14 +497,14 @@ export default function Home({ onViewProfile }) {
                               <span className="comment-time">{formatDate(comment.created_at)}</span>
                             </div>
                             <div className="comment-content">{comment.content}</div>
-                            
+
                             {/* Replies */}
                             {comment.replies?.length > 0 && (
                               <div className="replies-list">
                                 {comment.replies.map(reply => (
                                   <div key={reply.id} className="reply-item">
                                     <div className="reply-header">
-                                      <div 
+                                      <div
                                         className="reply-author"
                                         onClick={() => onViewProfile && onViewProfile(reply.user_id)}
                                         style={{ cursor: 'pointer' }}
@@ -489,7 +551,7 @@ export default function Home({ onViewProfile }) {
                         <div className="no-comments">No comments yet</div>
                       )}
                     </div>
-                    
+
                     {/* Comment input */}
                     <div className="comment-input-wrapper">
                       <input
@@ -512,8 +574,8 @@ export default function Home({ onViewProfile }) {
           </div>
           {hasMore && (
             <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-              <button 
-                onClick={loadMore} 
+              <button
+                onClick={loadMore}
                 disabled={loadingMore}
                 style={{
                   padding: '0.75rem 2rem',

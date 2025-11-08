@@ -151,17 +151,7 @@ export default function Friends({ onViewProfile }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [followingMap, setFollowingMap] = useState({});
   const [mutualFriends, setMutualFriends] = useState([]);
-
-  useEffect(() => {
-    // Build a map of who we're following for quick lookup
-    const map = {};
-    following.forEach(f => {
-      map[f.id] = true;
-    });
-    setFollowingMap(map);
-  }, [following]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -276,11 +266,6 @@ export default function Friends({ onViewProfile }) {
           setSearchResults(prev => 
             prev.map(u => u.id === userId ? { ...u, isFollowing: false } : u)
           );
-          setFollowingMap(prev => {
-            const newMap = { ...prev };
-            delete newMap[userId];
-            return newMap;
-          });
           // Refresh following list to update count
           if (fetchFollows) {
             fetchFollows();
@@ -299,7 +284,6 @@ export default function Friends({ onViewProfile }) {
           setSearchResults(prev => 
             prev.map(u => u.id === userId ? { ...u, isFollowing: true } : u)
           );
-          setFollowingMap(prev => ({ ...prev, [userId]: true }));
           // Refresh following list to update count
           if (fetchFollows) {
             fetchFollows();

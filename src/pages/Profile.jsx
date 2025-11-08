@@ -7,11 +7,169 @@ import { supabase } from "../supabaseClient";
 import { compressAvatarImage } from "../utils/imageCompression";
 import "../styles/profile.css";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WORD_DASH_GAME = "daily_wordle";
+
+function buildWordDashBadges(stats) {
+  const badges = [];
+
+  if (stats.totalWins > 0) {
+    badges.push({
+      id: "first-win",
+      title: "First Solve",
+      description: "Solved your first Word Dash puzzle.",
+    });
+  }
+
+  if (stats.bestStreak >= 3) {
+    badges.push({
+      id: "streak-starter",
+      title: "Streak Starter",
+      description: "Held a streak of 3+ days.",
+    });
+  }
+
+  if (stats.bestStreak >= 7) {
+    badges.push({
+      id: "streak-master",
+      title: "Streak Master",
+      description: "Held a streak of 7+ days.",
+    });
+  }
+
+  if (stats.currentStreak >= 5) {
+    badges.push({
+      id: "on-fire",
+      title: "On Fire",
+      description: "Currently on a 5+ day streak.",
+    });
+  }
+
+  if (stats.totalPoints >= 100) {
+    badges.push({
+      id: "points-pro",
+      title: "Points Pro",
+      description: "Scored 100+ total points.",
+    });
+  }
+
+  if (stats.totalWins >= 25) {
+    badges.push({
+      id: "word-dash-champ",
+      title: "Word Dash Champ",
+      description: "Logged 25 puzzle victories.",
+    });
+  }
+
+  if (badges.length === 0) {
+    badges.push({
+      id: "contender",
+      title: "Contender",
+      description: "Play Word Dash to start earning badges!",
+    });
+  }
+
+  return badges;
+}
+
+function computeWordDashStats(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return {
+      totalGames: 0,
+      totalWins: 0,
+      totalPoints: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      badges: buildWordDashBadges({
+        totalWins: 0,
+        totalPoints: 0,
+        currentStreak: 0,
+        bestStreak: 0,
+      }),
+    };
+  }
+
+  const sortedAsc = [...entries].sort(
+    (a, b) => new Date(a.game_date).getTime() - new Date(b.game_date).getTime()
+  );
+
+  let bestStreak = 0;
+  let runningStreak = 0;
+  let previousSuccessDate = null;
+
+  sortedAsc.forEach((entry) => {
+    if (entry.success) {
+      const currentDate = new Date(entry.game_date);
+      if (previousSuccessDate) {
+        const diffDays = Math.round(
+          (currentDate.getTime() - previousSuccessDate.getTime()) / DAY_MS
+        );
+        if (diffDays === 1) {
+          runningStreak += 1;
+        } else {
+          runningStreak = 1;
+        }
+      } else {
+        runningStreak = 1;
+      }
+      previousSuccessDate = currentDate;
+      bestStreak = Math.max(bestStreak, runningStreak);
+    } else {
+      runningStreak = 0;
+      previousSuccessDate = null;
+    }
+  });
+
+  const sortedDescAll = [...entries].sort(
+    (a, b) => new Date(b.game_date).getTime() - new Date(a.game_date).getTime()
+  );
+
+  let currentStreak = 0;
+  if (sortedDescAll.length > 0 && sortedDescAll[0].success) {
+    const successDesc = sortedDescAll.filter((entry) => entry.success);
+    let lastDate = null;
+    for (const entry of successDesc) {
+      const date = new Date(entry.game_date);
+      if (!lastDate) {
+        currentStreak = 1;
+        lastDate = date;
+        continue;
+      }
+      const diffDays = Math.round((lastDate.getTime() - date.getTime()) / DAY_MS);
+      if (diffDays === 1) {
+        currentStreak += 1;
+        lastDate = date;
+      } else {
+        break;
+      }
+    }
+  }
+
+  const totalWins = entries.filter((entry) => entry.success).length;
+  const totalPoints = entries.reduce((sum, entry) => sum + (entry.points || 0), 0);
+
+  const badgeList = buildWordDashBadges({
+    totalWins,
+    totalPoints,
+    currentStreak,
+    bestStreak,
+  });
+
+  return {
+    totalGames: entries.length,
+    totalWins,
+    totalPoints,
+    currentStreak,
+    bestStreak,
+    badges: badgeList,
+  };
+}
+
 export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
   const { user } = useAuth();
   const viewingUserId = userId || user?.id;
   const isOwnProfile = viewingUserId === user?.id;
-  const { profile, loading: profileLoading, updateProfile, fetchProfile } = useProfile(viewingUserId);
+  const { profile, loading: profileLoading, updateProfile } = useProfile(viewingUserId);
   const { followers, following, isFollowing, toggleFollow, loading: followsLoading, fetchFollows } = useFollows(viewingUserId);
   const [isEditing, setIsEditing] = useState(false);
   const [nickname, setNickname] = useState("");
@@ -26,6 +184,16 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
   const [updatingBanner, setUpdatingBanner] = useState(false);
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
+  const [wordDashStats, setWordDashStats] = useState({
+    loading: true,
+    totalGames: 0,
+    totalWins: 0,
+    totalPoints: 0,
+    currentStreak: 0,
+    bestStreak: 0,
+    badges: [],
+    error: null,
+  });
 
   const bannerOptions = useMemo(() => ([
     { id: "nebula", label: "Nebula", gradient: "linear-gradient(135deg, #0f1f3d 0%, #1e3a5f 100%)" },
@@ -50,7 +218,7 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
       localStorage.clear();
       sessionStorage.clear();
       window.location.href = '/';
-    } catch (error) {
+    } catch {
       // Even if there's an error, clear and redirect
       localStorage.clear();
       sessionStorage.clear();
@@ -117,6 +285,47 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
 
     return () => {
       isMounted = false;
+    };
+  }, [viewingUserId]);
+
+  useEffect(() => {
+    if (!viewingUserId) return;
+    let cancelled = false;
+
+    const fetchStats = async () => {
+      setWordDashStats((prev) => ({ ...prev, loading: true, error: null }));
+      try {
+        const { data, error } = await supabase
+          .from("game_scores")
+          .select("game_date, success, points")
+          .eq("user_id", viewingUserId)
+          .eq("game_name", WORD_DASH_GAME)
+          .order("game_date", { ascending: true });
+
+        if (error) {
+          throw error;
+        }
+
+        if (!cancelled) {
+          const stats = computeWordDashStats(data || []);
+          setWordDashStats({ ...stats, loading: false, error: null });
+        }
+      } catch (err) {
+        console.error("Error fetching Word Dash stats:", err);
+        if (!cancelled) {
+          setWordDashStats((prev) => ({
+            ...prev,
+            loading: false,
+            error: "Unable to load Word Dash stats right now.",
+          }));
+        }
+      }
+    };
+
+    fetchStats();
+
+    return () => {
+      cancelled = true;
     };
   }, [viewingUserId]);
 
@@ -197,7 +406,7 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
       const filePath = fileName;
 
       // Upload compressed file to Supabase storage
-      const { error: uploadError, data: uploadData } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, compressedFile, {
           upsert: true,
@@ -454,6 +663,52 @@ export default function Profile({ userId, onViewProfile, onBackToOwnProfile }) {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="profile-achievements">
+        <div className="profile-achievements-header">
+          <h2>Word Dash Highlights</h2>
+          {!wordDashStats.loading && !wordDashStats.error && (
+            <div className="profile-stat-pills">
+              <span className="profile-stat-pill">
+                <span className="stat-value">{wordDashStats.currentStreak}</span>
+                <span className="stat-label">Current Streak</span>
+              </span>
+              <span className="profile-stat-pill">
+                <span className="stat-value">{wordDashStats.bestStreak}</span>
+                <span className="stat-label">Best Streak</span>
+              </span>
+              <span className="profile-stat-pill">
+                <span className="stat-value">{wordDashStats.totalWins}</span>
+                <span className="stat-label">Wins</span>
+              </span>
+              <span className="profile-stat-pill">
+                <span className="stat-value">{wordDashStats.totalPoints}</span>
+                <span className="stat-label">Points</span>
+              </span>
+            </div>
+          )}
+        </div>
+
+        {wordDashStats.loading ? (
+          <p className="profile-achievements-loading">Crunching your streaks…</p>
+        ) : wordDashStats.error ? (
+          <p className="profile-achievements-error">{wordDashStats.error}</p>
+        ) : (
+          <>
+            <div className="profile-badges-grid">
+              {wordDashStats.badges.map((badge) => (
+                <div key={badge.id} className="profile-badge-card">
+                  <span className="profile-badge-icon">🏅</span>
+                  <div className="profile-badge-info">
+                    <span className="profile-badge-title">{badge.title}</span>
+                    <span className="profile-badge-description">{badge.description}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </section>
 
       <section className="profile-posts-section">

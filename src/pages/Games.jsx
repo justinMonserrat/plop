@@ -135,6 +135,19 @@ const attemptsToPoints = (attempts, success) => {
   return POINTS_BY_ATTEMPT[index] ?? 0;
 };
 
+const hydrateGuesses = (words, answer) => {
+  if (!Array.isArray(words)) return [];
+  return words
+    .filter((word) => typeof word === "string" && word.length === WORD_LENGTH)
+    .map((word) => {
+      const upperWord = word.toUpperCase();
+      return {
+        word: upperWord,
+        tiles: evaluateGuess(upperWord, answer)
+      };
+    });
+};
+
 function Games() {
   const { user } = useAuth();
   const todayKey = useMemo(() => getLocalDateKey(), []);
@@ -207,6 +220,65 @@ function Games() {
       console.warn("Unable to read saved puzzle state", error);
     }
   }, [storageKey, dailyWord]);
+
+  useEffect(() => {
+    if (!user?.id || !dailyWord) return undefined;
+
+    let isMounted = true;
+
+    const syncExistingResult = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("game_scores")
+          .select("attempts, success, guesses, points")
+          .eq("game_name", GAME_NAME)
+          .eq("game_date", todayKey)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!isMounted) return;
+
+        if (error && error.code !== "PGRST116") {
+          console.error("Error checking previous result:", error);
+          return;
+        }
+
+        if (!data) {
+          return;
+        }
+
+        const reconstructedGuesses = hydrateGuesses(data.guesses, dailyWord);
+        const attemptsUsed = data.attempts ?? reconstructedGuesses.length;
+        const success = Boolean(data.success);
+        const status = success ? "won" : "lost";
+        const pointsEarned = attemptsToPoints(attemptsUsed, success);
+        const message = success
+          ? `Nice work! You already solved today's puzzle in ${attemptsUsed} guess${attemptsUsed === 1 ? "" : "es"} and earned ${pointsEarned} point${pointsEarned === 1 ? "" : "s"}.`
+          : `The word was ${dailyWord}. Better luck tomorrow!`;
+
+        setGuesses(reconstructedGuesses);
+        setCurrentGuess("");
+        setGameStatus(status);
+        setResultMessage(message);
+        setResultSubmitted(true);
+        persistState({
+          guesses: reconstructedGuesses,
+          status,
+          currentGuess: "",
+          resultSubmitted: true
+        });
+      } catch (err) {
+        if (!isMounted) return;
+        console.error("Error syncing previous result:", err);
+      }
+    };
+
+    syncExistingResult();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, dailyWord, todayKey, persistState]);
 
   const fetchScoreboard = useCallback(async () => {
     setLoadingScores(true);

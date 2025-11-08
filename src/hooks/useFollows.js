@@ -101,7 +101,7 @@ export function useFollows(userId) {
         .single();
 
       setIsFollowing(!!data);
-    } catch (err) {
+    } catch {
       setIsFollowing(false);
     }
   }, [userId, user?.id]);

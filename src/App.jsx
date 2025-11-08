@@ -11,19 +11,23 @@ import Blog from "./pages/Blog";
 import Messages from "./pages/Messages";
 import Games from "./pages/Games";
 import Navbar from "./components/Navbar";
+import MobileNav from "./components/MobileNav";
 import "./styles/navbar.css";
+import "./styles/mobile-nav.css";
+import { useNotifications } from "./hooks/useNotifications";
 
 function AppRoutes() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const notificationsData = useNotifications(user?.id);
 
   useEffect(() => {
     // Check if we're on a password reset page (check URL hash)
     const hash = window.location.hash;
     const params = new URLSearchParams(hash.substring(1));
     const type = params.get('type');
-    
+
     if (type === 'recovery' || hash.includes('type=recovery')) {
       setShowResetPassword(true);
     }
@@ -57,7 +61,7 @@ function AppRoutes() {
 
   return (
     <div className="app-container">
-      <Navbar />
+      <Navbar notificationsData={notificationsData} />
       <main className="main-content">
         <Routes>
           <Route path="/" element={<Home onViewProfile={handleViewProfile} />} />
@@ -71,6 +75,7 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </main>
+      <MobileNav notificationsData={notificationsData} />
     </div>
   );
 }

@@ -103,6 +103,22 @@ CREATE TABLE IF NOT EXISTS comments (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create notifications table
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  recipient_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  actor_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
+  comment_id UUID REFERENCES comments(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  payload JSONB DEFAULT '{}'::jsonb,
+  read_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read
+  ON notifications(recipient_id, read_at);
+
 -- Create game scores table for daily challenges
 CREATE TABLE IF NOT EXISTS game_scores (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -240,6 +256,7 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_scores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- DROP EXISTING POLICIES (if they exist)
@@ -285,6 +302,10 @@ DROP POLICY IF EXISTS "Users can view all comments" ON comments;
 DROP POLICY IF EXISTS "Users can create comments" ON comments;
 DROP POLICY IF EXISTS "Users can update their own comments" ON comments;
 DROP POLICY IF EXISTS "Users can delete their own comments" ON comments;
+
+DROP POLICY IF EXISTS "Users can read their notifications" ON notifications;
+DROP POLICY IF EXISTS "Actors can create notifications" ON notifications;
+DROP POLICY IF EXISTS "Users can mark notifications read" ON notifications;
 
 DROP POLICY IF EXISTS "Avatar images are publicly accessible" ON storage.objects;
 DROP POLICY IF EXISTS "Users can upload their own avatar" ON storage.objects;
@@ -454,6 +475,16 @@ CREATE POLICY "Users can update their own comments" ON comments
 
 CREATE POLICY "Users can delete their own comments" ON comments
   FOR DELETE USING (auth.uid() = user_id);
+
+-- Notifications policies
+CREATE POLICY "Users can read their notifications" ON notifications
+  FOR SELECT USING (auth.uid() = recipient_id);
+
+CREATE POLICY "Actors can create notifications" ON notifications
+  FOR INSERT WITH CHECK (auth.uid() = actor_id);
+
+CREATE POLICY "Users can mark notifications read" ON notifications
+  FOR UPDATE USING (auth.uid() = recipient_id);
 
 -- Game scores policies
 CREATE POLICY "Players can view all scores" ON game_scores
