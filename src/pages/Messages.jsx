@@ -31,6 +31,10 @@ export default function Messages({ onViewProfile }) {
   const [groupChatMembers, setGroupChatMembers] = useState([]);
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth <= 768;
+  });
 
   useEffect(() => {
     if (user?.id) {
@@ -69,9 +73,24 @@ export default function Messages({ onViewProfile }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   const fetchConversations = async () => {
     if (!user?.id) return;
-    
+
     setLoading(true);
     try {
       // Fetch chats and members in parallel
@@ -187,7 +206,7 @@ export default function Messages({ onViewProfile }) {
       const otherPersonIds = conversationsWithMembers
         .filter(c => !c.isGroupChat && c.otherPersonId)
         .map(c => c.otherPersonId);
-      
+
       if (otherPersonIds.length > 0) {
         const { data: profilesData } = await supabase
           .from('profiles')
@@ -362,7 +381,7 @@ export default function Messages({ onViewProfile }) {
       setMessagesPage(nextPage);
       const scrollPosition = messagesListRef.current?.scrollTop || 0;
       const scrollHeight = messagesListRef.current?.scrollHeight || 0;
-      
+
       fetchMessages(selectedConversation.id, nextPage, false).then(() => {
         // Maintain scroll position after loading older messages
         setTimeout(() => {
@@ -418,10 +437,10 @@ export default function Messages({ onViewProfile }) {
         .eq('user_id', user.id);
 
       let existingChat = null;
-      
+
       if (userChatMembers && userChatMembers.length > 0) {
         const userChatIds = userChatMembers.map(m => m.chat_id);
-        
+
         // Get all chats that are 1-on-1 (name is null)
         const { data: existingChats } = await supabase
           .from('chats')
@@ -440,14 +459,14 @@ export default function Messages({ onViewProfile }) {
           // Find chat with both users (exactly 2 members)
           if (existingMembers && existingMembers.length > 0) {
             const friendChatIds = new Set(existingMembers.map(m => m.chat_id));
-            
+
             // For each chat, check if it has exactly 2 members (user + friend)
             for (const chatId of friendChatIds) {
               const { data: allMembers } = await supabase
                 .from('chat_members')
                 .select('user_id')
                 .eq('chat_id', chatId);
-              
+
               if (allMembers && allMembers.length === 2) {
                 const memberIds = new Set(allMembers.map(m => m.user_id));
                 if (memberIds.has(user.id) && memberIds.has(friendId)) {
@@ -658,7 +677,7 @@ export default function Messages({ onViewProfile }) {
     try {
       // Compress the image
       const compressedFile = await compressMessageImage(file);
-      
+
       // Check compressed size (max 1MB after compression)
       if (compressedFile.size > 1 * 1024 * 1024) {
         alert('Image is too large even after compression. Please try a smaller image.');
@@ -744,7 +763,7 @@ export default function Messages({ onViewProfile }) {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      
+
       // Reset and reload messages from beginning
       setMessagesPage(0);
       setHasMoreMessages(true);
@@ -783,9 +802,266 @@ export default function Messages({ onViewProfile }) {
     return !chatMembers.some(m => m.id === friend.id);
   });
 
+  const renderConversationsSidebar = () => (
+    <div className="conversations-sidebar">
+      <div className="conversations-header">
+        <h2>Messages</h2>
+        <button
+          className="new-chat-btn"
+          onClick={() => setShowChatOptionsModal(true)}
+          title="New chat"
+        >
+          + New Chat
+        </button>
+      </div>
+      {conversations.length === 0 ? (
+        <p className="empty-state">No conversations yet. Start a new conversation!</p>
+      ) : (
+        <div className="conversations-list">
+          {conversations.map((conv) => (
+            <div
+              key={conv.id}
+              className={`conversation-item ${selectedConversation?.id === conv.id ? 'active' : ''}`}
+              onClick={() => setSelectedConversation(conv)}
+            >
+              <div className="conversation-avatar">
+                {conv.avatar ? (
+                  <img src={conv.avatar} alt={conv.name} />
+                ) : (
+                  <div className="conversation-avatar-placeholder">
+                    {conv.isGroupChat ? '👥' : (conv.name?.[0]?.toUpperCase() || 'U')}
+                  </div>
+                )}
+              </div>
+              <div className="conversation-info">
+                <div className="conversation-header">
+                  <span className="conversation-name">{conv.name}</span>
+                  {conv.unreadCount > 0 && (
+                    <span className="unread-badge">{conv.unreadCount}</span>
+                  )}
+                </div>
+                <p className="conversation-preview">
+                  {conv.lastMessage?.content?.substring(0, 50) || '📷 Image'}
+                  {conv.lastMessage?.content && conv.lastMessage.content.length > 50 ? '...' : ''}
+                </p>
+                <span className="conversation-time">
+                  {formatDate(conv.lastMessage?.created_at || conv.updatedAt)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderMessagesMain = (isMobileView = false) => {
+    if (!selectedConversation) {
+      return (
+        <div className="messages-main no-conversation">
+          <p>Select a conversation or start a new one</p>
+        </div>
+      );
+    }
+
+    const memberCount = chatMembers.length;
+
+    return (
+      <div className={`messages-main ${isMobileView ? 'mobile-active' : ''}`}>
+        <div className="messages-header">
+          {isMobileView && (
+            <button
+              type="button"
+              className="back-to-chats-btn"
+              onClick={() => setSelectedConversation(null)}
+            >
+              ← Chats
+            </button>
+          )}
+          <div className={`messages-partner-info ${isMobileView ? 'mobile' : ''}`}>
+            <div
+              className="messages-partner"
+              onClick={() => {
+                if (!selectedConversation.isGroupChat) {
+                  const otherMember = chatMembers.find(m => m.id !== user.id);
+                  if (otherMember) {
+                    onViewProfile && onViewProfile(otherMember.id);
+                  }
+                }
+              }}
+              style={{ cursor: selectedConversation.isGroupChat ? 'default' : 'pointer' }}
+            >
+              <div className="messages-partner-avatar">
+                {selectedConversation.avatar ? (
+                  <img src={selectedConversation.avatar} alt={selectedConversation.name} />
+                ) : (
+                  <div className="messages-partner-avatar-placeholder">
+                    {selectedConversation.isGroupChat ? '👥' : (selectedConversation.name?.[0]?.toUpperCase() || 'U')}
+                  </div>
+                )}
+              </div>
+              <div>
+                <span>{selectedConversation.name}</span>
+              </div>
+            </div>
+            {selectedConversation.isGroupChat && (
+              <div className={`group-chat-actions ${isMobileView ? 'mobile' : ''}`}>
+                <button
+                  className="add-member-btn"
+                  onClick={() => setShowAddMemberModal(true)}
+                  title="Add member"
+                >
+                  + Add
+                </button>
+                <button
+                  className="leave-group-btn"
+                  onClick={handleLeaveGroup}
+                  title="Leave group"
+                >
+                  Leave
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {selectedConversation.isGroupChat && (
+          <div className="group-members-list">
+            <strong>Members ({memberCount}):</strong>
+            <div className="members-grid">
+              {chatMembers.map((member) => (
+                <div
+                  key={member.id}
+                  className="member-item"
+                  onClick={() => onViewProfile && onViewProfile(member.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="member-avatar">
+                    {member.avatar_url ? (
+                      <img src={member.avatar_url} alt={member.nickname} />
+                    ) : (
+                      <div className="member-avatar-placeholder">
+                        {member.nickname?.[0]?.toUpperCase() || 'U'}
+                      </div>
+                    )}
+                  </div>
+                  <span>{member.nickname || 'User'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div
+          className="messages-list"
+          ref={messagesListRef}
+          onScroll={(e) => {
+            if (e.target.scrollTop === 0 && hasMoreMessages && !loadingMoreMessages) {
+              loadMoreMessages();
+            }
+          }}
+        >
+          {hasMoreMessages && (
+            <div style={{ textAlign: 'center', padding: '1rem' }}>
+              <button
+                onClick={loadMoreMessages}
+                disabled={loadingMoreMessages}
+                style={{
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.9rem',
+                  backgroundColor: 'var(--accent-primary, #3b82f6)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: loadingMoreMessages ? 'not-allowed' : 'pointer',
+                  opacity: loadingMoreMessages ? 0.6 : 1
+                }}
+              >
+                {loadingMoreMessages ? 'Loading older messages...' : 'Load Older Messages'}
+              </button>
+            </div>
+          )}
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`message-item ${message.sender_id === user.id ? 'sent' : 'received'}`}
+            >
+              <div className="message-bubble">
+                {selectedConversation.isGroupChat && message.sender_id !== user.id && (
+                  <span className="message-sender-name">{message.sender?.nickname || 'User'}</span>
+                )}
+                {message.image_url && (
+                  <img src={message.image_url} alt="Message" className="message-image" />
+                )}
+                {message.content && <p className="message-content-text">{message.content}</p>}
+                <span className="message-time">{formatDate(message.created_at)}</span>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <form onSubmit={handleSendMessage} className="message-form">
+          <div className="message-input-wrapper">
+            <input
+              type="text"
+              placeholder="Type a message..."
+              value={messageContent}
+              onChange={(e) => setMessageContent(e.target.value)}
+              className="message-input"
+              disabled={sending || uploadingImage}
+            />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImageSelect}
+              accept="image/*"
+              style={{ display: 'none' }}
+              disabled={sending || uploadingImage}
+            />
+            <button
+              type="button"
+              className="image-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending || uploadingImage}
+              title="Add image"
+            >
+              📷
+            </button>
+          </div>
+          {messageImagePreview && (
+            <div className="image-preview-container">
+              <img src={messageImagePreview} alt="Preview" className="image-preview" />
+              <button
+                type="button"
+                className="remove-image-btn"
+                onClick={() => {
+                  setMessageImage(null);
+                  setMessageImagePreview(null);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                  }
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          <button
+            type="submit"
+            className="send-btn"
+            disabled={(!messageContent.trim() && !messageImage) || sending || uploadingImage}
+          >
+            {uploadingImage ? 'Uploading...' : sending ? 'Sending...' : 'Send'}
+          </button>
+        </form>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
-      <div className="page-content">
+      <div className="page-content messages-page loading">
         <div className="messages-container">
           <div className="conversations-sidebar" style={{ opacity: 0.6 }}>
             <div className="conversations-header">
@@ -793,257 +1069,38 @@ export default function Messages({ onViewProfile }) {
             </div>
             <div className="conversations-list">
               {[1, 2, 3].map(i => (
-                <div key={i} className="conversation-item" style={{ backgroundColor: 'var(--bg-secondary)', height: '60px', borderRadius: '4px', marginBottom: '0.5rem' }}></div>
+                <div
+                  key={i}
+                  className="conversation-item"
+                  style={{ backgroundColor: 'var(--bg-secondary)', height: '60px', borderRadius: '4px', marginBottom: '0.5rem' }}
+                />
               ))}
             </div>
           </div>
-          <div className="messages-main" style={{ opacity: 0.6, backgroundColor: 'var(--bg-secondary)', height: '400px', borderRadius: '4px' }}></div>
+          <div className="messages-main" style={{ opacity: 0.6, backgroundColor: 'var(--bg-secondary)', height: '400px', borderRadius: '4px' }} />
         </div>
       </div>
     );
   }
 
+  const showMobileConversation = isMobile && !!selectedConversation;
+
   return (
-    <div className={`page-content messages-container ${selectedConversation ? 'has-conversation' : ''}`}>
-      <div className="conversations-sidebar">
-        <div className="conversations-header">
-          <h2>Messages</h2>
-          <button
-            className="new-chat-btn"
-            onClick={() => setShowChatOptionsModal(true)}
-            title="New chat"
-          >
-            + New Chat
-          </button>
-        </div>
-        {conversations.length === 0 ? (
-          <p className="empty-state">No conversations yet. Start a new conversation!</p>
-        ) : (
-          <div className="conversations-list">
-            {conversations.map((conv) => (
-              <div
-                key={conv.id}
-                className={`conversation-item ${selectedConversation?.id === conv.id ? 'active' : ''}`}
-                onClick={() => setSelectedConversation(conv)}
-              >
-                <div className="conversation-avatar">
-                  {conv.avatar ? (
-                    <img src={conv.avatar} alt={conv.name} />
-                  ) : (
-                    <div className="conversation-avatar-placeholder">
-                      {conv.isGroupChat ? '👥' : (conv.name?.[0]?.toUpperCase() || 'U')}
-                    </div>
-                  )}
-                </div>
-                <div className="conversation-info">
-                  <div className="conversation-header">
-                    <span className="conversation-name">{conv.name}</span>
-                    {conv.unreadCount > 0 && (
-                      <span className="unread-badge">{conv.unreadCount}</span>
-                    )}
-                  </div>
-                  <p className="conversation-preview">
-                    {conv.lastMessage?.content?.substring(0, 50) || '📷 Image'}
-                    {conv.lastMessage?.content && conv.lastMessage.content.length > 50 ? '...' : ''}
-                  </p>
-                  <span className="conversation-time">
-                    {formatDate(conv.lastMessage?.created_at || conv.updatedAt)}
-                  </span>
-                </div>
-              </div>
-            ))}
+    <div className={`page-content messages-page ${isMobile ? 'mobile' : ''}`}>
+      {isMobile ? (
+        showMobileConversation ? (
+          <div className="mobile-conversation-view">
+            {renderMessagesMain(true)}
           </div>
-        )}
-      </div>
-
-      {selectedConversation ? (
-        <div className="messages-main">
-            <div className="messages-header">
-              <div className="messages-partner-info">
-                <div 
-                  className="messages-partner"
-                  onClick={() => {
-                    if (!selectedConversation.isGroupChat) {
-                      const otherMember = chatMembers.find(m => m.id !== user.id);
-                      if (otherMember) {
-                        onViewProfile && onViewProfile(otherMember.id);
-                      }
-                    }
-                  }}
-                  style={{ cursor: selectedConversation.isGroupChat ? 'default' : 'pointer' }}
-                >
-                  <div className="messages-partner-avatar">
-                    {selectedConversation.avatar ? (
-                      <img src={selectedConversation.avatar} alt={selectedConversation.name} />
-                    ) : (
-                      <div className="messages-partner-avatar-placeholder">
-                        {selectedConversation.isGroupChat ? '👥' : (selectedConversation.name?.[0]?.toUpperCase() || 'U')}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <span>{selectedConversation.name}</span>
-                    {selectedConversation.isGroupChat && (
-                      <span className="member-count">({chatMembers.length} members)</span>
-                    )}
-                  </div>
-                </div>
-                {selectedConversation.isGroupChat && (
-                  <div className="group-chat-actions">
-                    <button
-                      className="add-member-btn"
-                      onClick={() => setShowAddMemberModal(true)}
-                      title="Add member"
-                    >
-                      + Add
-                    </button>
-                    <button
-                      className="leave-group-btn"
-                      onClick={handleLeaveGroup}
-                      title="Leave group"
-                    >
-                      Leave
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {selectedConversation.isGroupChat && (
-              <div className="group-members-list">
-                <strong>Members:</strong>
-                <div className="members-grid">
-                  {chatMembers.map((member) => (
-                    <div
-                      key={member.id}
-                      className="member-item"
-                      onClick={() => onViewProfile && onViewProfile(member.id)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <div className="member-avatar">
-                        {member.avatar_url ? (
-                          <img src={member.avatar_url} alt={member.nickname} />
-                        ) : (
-                          <div className="member-avatar-placeholder">
-                            {member.nickname?.[0]?.toUpperCase() || 'U'}
-                          </div>
-                        )}
-                      </div>
-                      <span>{member.nickname || 'User'}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div 
-              className="messages-list"
-              ref={messagesListRef}
-              onScroll={(e) => {
-                // Load more when scrolling to top
-                if (e.target.scrollTop === 0 && hasMoreMessages && !loadingMoreMessages) {
-                  loadMoreMessages();
-                }
-              }}
-            >
-              {hasMoreMessages && (
-                <div style={{ textAlign: 'center', padding: '1rem' }}>
-                  <button 
-                    onClick={loadMoreMessages} 
-                    disabled={loadingMoreMessages}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      fontSize: '0.9rem',
-                      backgroundColor: 'var(--accent-primary, #3b82f6)',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: loadingMoreMessages ? 'not-allowed' : 'pointer',
-                      opacity: loadingMoreMessages ? 0.6 : 1
-                    }}
-                  >
-                    {loadingMoreMessages ? 'Loading older messages...' : 'Load Older Messages'}
-                  </button>
-                </div>
-              )}
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`message-item ${message.sender_id === user.id ? 'sent' : 'received'}`}
-                >
-                  <div className="message-bubble">
-                    {selectedConversation.isGroupChat && message.sender_id !== user.id && (
-                      <span className="message-sender-name">{message.sender?.nickname || 'User'}</span>
-                    )}
-                    {message.image_url && (
-                      <img src={message.image_url} alt="Message" className="message-image" />
-                    )}
-                    {message.content && <p className="message-content-text">{message.content}</p>}
-                    <span className="message-time">{formatDate(message.created_at)}</span>
-                  </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <form onSubmit={handleSendMessage} className="message-form">
-              <div className="message-input-wrapper">
-                <input
-                  type="text"
-                  placeholder="Type a message..."
-                  value={messageContent}
-                  onChange={(e) => setMessageContent(e.target.value)}
-                  className="message-input"
-                  disabled={sending || uploadingImage}
-                />
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleImageSelect}
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  disabled={sending || uploadingImage}
-                />
-                <button
-                  type="button"
-                  className="image-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={sending || uploadingImage}
-                  title="Add image"
-                >
-                  📷
-                </button>
-              </div>
-              {messageImagePreview && (
-                <div className="image-preview-container">
-                  <img src={messageImagePreview} alt="Preview" className="image-preview" />
-                  <button
-                    type="button"
-                    className="remove-image-btn"
-                    onClick={() => {
-                      setMessageImage(null);
-                      setMessageImagePreview(null);
-                      if (fileInputRef.current) {
-                        fileInputRef.current.value = '';
-                      }
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
-              <button
-                type="submit"
-                className="send-btn"
-                disabled={(!messageContent.trim() && !messageImage) || sending || uploadingImage}
-              >
-                {uploadingImage ? 'Uploading...' : sending ? 'Sending...' : 'Send'}
-              </button>
-            </form>
-        </div>
+        ) : (
+          <div className="mobile-conversations-view">
+            {renderConversationsSidebar()}
+          </div>
+        )
       ) : (
-        <div className="messages-main no-conversation">
-          <p>Select a conversation or start a new one</p>
+        <div className={`messages-container ${selectedConversation ? 'has-conversation' : ''}`}>
+          {renderConversationsSidebar()}
+          {renderMessagesMain()}
         </div>
       )}
 

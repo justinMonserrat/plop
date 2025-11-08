@@ -58,6 +58,12 @@ export default function Navbar() {
           Blog
         </button>
         <button
+          className={`nav-link ${isActive('/games') ? "active" : ""}`}
+          onClick={() => handleNavClick('/games')}
+        >
+          Games
+        </button>
+        <button
           className={`nav-link ${isActive('/messages') ? "active" : ""}`}
           onClick={() => handleNavClick('/messages')}
         >

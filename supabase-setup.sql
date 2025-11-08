@@ -103,6 +103,34 @@ CREATE TABLE IF NOT EXISTS comments (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create game scores table for daily challenges
+CREATE TABLE IF NOT EXISTS game_scores (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  game_name TEXT NOT NULL,
+  game_date DATE NOT NULL,
+  attempts INTEGER,
+  success BOOLEAN NOT NULL DEFAULT FALSE,
+  guesses JSONB,
+  points INTEGER NOT NULL DEFAULT 0,
+  completed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS game_scores_unique_daily
+  ON game_scores(user_id, game_name, game_date);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'game_scores' AND column_name = 'points'
+  ) THEN
+    ALTER TABLE game_scores ADD COLUMN points INTEGER NOT NULL DEFAULT 0;
+  END IF;
+END $$;
+
 -- Add chat_id column if it doesn't exist (for migration)
 DO $$
 BEGIN
@@ -211,6 +239,7 @@ ALTER TABLE chat_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_scores ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- DROP EXISTING POLICIES (if they exist)
@@ -229,6 +258,10 @@ DROP POLICY IF EXISTS "Users can view all posts" ON posts;
 DROP POLICY IF EXISTS "Users can create their own posts" ON posts;
 DROP POLICY IF EXISTS "Users can update their own posts" ON posts;
 DROP POLICY IF EXISTS "Users can delete their own posts" ON posts;
+
+DROP POLICY IF EXISTS "Players can view all scores" ON game_scores;
+DROP POLICY IF EXISTS "Players can insert their scores" ON game_scores;
+DROP POLICY IF EXISTS "Players can update their scores" ON game_scores;
 
 DROP POLICY IF EXISTS "Users can view chats they're in" ON chats;
 DROP POLICY IF EXISTS "Users can create chats" ON chats;
@@ -421,6 +454,16 @@ CREATE POLICY "Users can update their own comments" ON comments
 
 CREATE POLICY "Users can delete their own comments" ON comments
   FOR DELETE USING (auth.uid() = user_id);
+
+-- Game scores policies
+CREATE POLICY "Players can view all scores" ON game_scores
+  FOR SELECT USING (true);
+
+CREATE POLICY "Players can insert their scores" ON game_scores
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Players can update their scores" ON game_scores
+  FOR UPDATE USING (auth.uid() = user_id);
 
 -- ============================================
 -- CREATE STORAGE BUCKETS

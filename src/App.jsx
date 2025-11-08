@@ -9,6 +9,7 @@ import Profile from "./pages/Profile";
 import Friends from "./pages/Friends";
 import Blog from "./pages/Blog";
 import Messages from "./pages/Messages";
+import Games from "./pages/Games";
 import Navbar from "./components/Navbar";
 import "./styles/navbar.css";
 
@@ -66,6 +67,7 @@ function AppRoutes() {
           <Route path="/friends" element={<Friends onViewProfile={handleViewProfile} />} />
           <Route path="/blog" element={<Blog onViewProfile={handleViewProfile} />} />
           <Route path="/messages" element={<Messages onViewProfile={handleViewProfile} />} />
+          <Route path="/games" element={<Games onViewProfile={handleViewProfile} />} />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </main>

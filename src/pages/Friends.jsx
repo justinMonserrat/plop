@@ -147,11 +147,12 @@ function FriendsActivity({ following, onViewProfile }) {
 
 export default function Friends({ onViewProfile }) {
   const { user } = useAuth();
-  const { following, loading: followsLoading, fetchFollows } = useFollows(user?.id);
+  const { following, followers, loading: followsLoading, fetchFollows } = useFollows(user?.id);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [followingMap, setFollowingMap] = useState({});
+  const [mutualFriends, setMutualFriends] = useState([]);
 
   useEffect(() => {
     // Build a map of who we're following for quick lookup
@@ -161,6 +162,15 @@ export default function Friends({ onViewProfile }) {
     });
     setFollowingMap(map);
   }, [following]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Determine mutuals: people we follow who also follow us
+    const followerIds = new Set((followers || []).map(f => f.id));
+    const mutuals = (following || []).filter(person => followerIds.has(person.id));
+    setMutualFriends(mutuals);
+  }, [following, followers, user?.id]);
 
   const performSearch = useCallback(async (query) => {
     if (!query || query.length < 1) {
@@ -363,6 +373,42 @@ export default function Friends({ onViewProfile }) {
 
         {searchQuery && searchResults.length === 0 && !searching && (
           <p className="no-results">No users found matching "{searchQuery}"</p>
+        )}
+      </div>
+
+      <div className="mutual-friends-section">
+        <h2>Mutual Friends</h2>
+        {followsLoading ? (
+          <p className="mutual-info">Loading mutual friends...</p>
+        ) : mutualFriends.length === 0 ? (
+          <p className="mutual-info">No mutual friends yet. Follow people who follow you back to see them here.</p>
+        ) : (
+          <div className="mutual-friends-list">
+            {mutualFriends.map((friend) => (
+              <div
+                key={friend.id}
+                className="mutual-friend-card"
+                onClick={() => onViewProfile && onViewProfile(friend.id)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="mutual-avatar">
+                  {friend.avatar_url ? (
+                    <img src={friend.avatar_url} alt={friend.nickname} />
+                  ) : (
+                    <div className="mutual-avatar-placeholder">
+                      {friend.nickname?.[0]?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                </div>
+                <div className="mutual-info-text">
+                  <span className="mutual-name">{friend.nickname || 'User'}</span>
+                  {friend.bio && (
+                    <span className="mutual-bio">{friend.bio}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
