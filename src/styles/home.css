@@ -309,6 +309,17 @@
   box-sizing: border-box;
 }
 
+.reply-input-wrapper > div {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.reply-input-wrapper .reply-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .reply-input:focus {
   outline: none;
   border-color: var(--accent-primary, #3b82f6);
@@ -328,6 +339,17 @@
   color: var(--text-primary, #ffffff);
   font-size: 0.9rem;
   box-sizing: border-box;
+}
+
+.comment-input-wrapper > div {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.comment-input-wrapper .comment-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .comment-input:focus {

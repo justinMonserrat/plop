@@ -11,9 +11,7 @@ import Blog from "./pages/Blog";
 import Messages from "./pages/Messages";
 import Games from "./pages/Games";
 import Navbar from "./components/Navbar";
-import MobileNav from "./components/MobileNav";
 import "./styles/navbar.css";
-import "./styles/mobile-nav.css";
 import { useNotifications } from "./hooks/useNotifications";
 
 function AppRoutes() {
@@ -75,7 +73,6 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </main>
-      <MobileNav notificationsData={notificationsData} />
     </div>
   );
 }

@@ -463,6 +463,91 @@ function Games() {
     }
   };
 
+  // Handle physical keyboard input
+  useEffect(() => {
+    if (gameStatus !== "playing" || !dailyWord) return;
+
+    const handleKeyDown = (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      const key = event.key.toUpperCase();
+      
+      if (key === "ENTER") {
+        event.preventDefault();
+        if (currentGuess.length === WORD_LENGTH) {
+          handleSubmitGuess({ preventDefault: () => {} });
+        } else {
+          setErrorMessage("Please enter a five-letter word.");
+        }
+      } else if (key === "BACKSPACE") {
+        event.preventDefault();
+        if (currentGuess.length > 0) {
+          const next = currentGuess.slice(0, -1);
+          setCurrentGuess(next);
+          persistState({ guesses, status: gameStatus, currentGuess: next, resultSubmitted });
+          setErrorMessage("");
+        }
+      } else if (/^[A-Z]$/.test(key) && currentGuess.length < WORD_LENGTH) {
+        event.preventDefault();
+        const next = currentGuess + key;
+        setCurrentGuess(next);
+        persistState({ guesses, status: gameStatus, currentGuess: next, resultSubmitted });
+        setErrorMessage("");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [gameStatus, dailyWord, currentGuess, guesses, resultSubmitted, persistState, handleSubmitGuess]);
+
+  // Track letter states for keyboard
+  const letterStates = useMemo(() => {
+    const states = {};
+    guesses.forEach((guess) => {
+      guess.word.split("").forEach((letter, index) => {
+        const status = guess.tiles[index];
+        const currentState = states[letter];
+        
+        // Priority: correct > present > absent
+        if (!currentState || 
+            (currentState === "absent" && status !== "absent") ||
+            (currentState === "present" && status === "correct")) {
+          states[letter] = status;
+        }
+      });
+    });
+    return states;
+  }, [guesses]);
+
+  const handleKeyClick = (letter) => {
+    if (gameStatus !== "playing" || !dailyWord) return;
+    if (currentGuess.length < WORD_LENGTH) {
+      const next = currentGuess + letter.toUpperCase();
+      setCurrentGuess(next);
+      persistState({ guesses, status: gameStatus, currentGuess: next, resultSubmitted });
+      setErrorMessage("");
+    }
+  };
+
+  const handleBackspace = () => {
+    if (gameStatus !== "playing" || !dailyWord) return;
+    if (currentGuess.length > 0) {
+      const next = currentGuess.slice(0, -1);
+      setCurrentGuess(next);
+      persistState({ guesses, status: gameStatus, currentGuess: next, resultSubmitted });
+      setErrorMessage("");
+    }
+  };
+
+  const handleEnter = () => {
+    if (gameStatus !== "playing" || !dailyWord) return;
+    if (currentGuess.length === WORD_LENGTH) {
+      handleSubmitGuess({ preventDefault: () => {} });
+    } else {
+      setErrorMessage("Please enter a five-letter word.");
+    }
+  };
+
   const gameBoardRows = useMemo(() => {
     return Array.from({ length: MAX_ATTEMPTS }, (_, rowIndex) => {
       const guessEntry = guesses[rowIndex];
@@ -566,24 +651,65 @@ function Games() {
               </div>
             </div>
             <div className="wordle-board">{gameBoardRows}</div>
-            <form className="wordle-form" onSubmit={handleSubmitGuess}>
-              <label htmlFor="wordle-input">Enter a 5-letter word</label>
-              <div className="wordle-input-group">
-                <input
-                  id="wordle-input"
-                  type="text"
-                  value={currentGuess}
-                  onChange={handleInputChange}
-                  maxLength={WORD_LENGTH}
-                  disabled={gameStatus !== "playing" || !dailyWord}
-                  placeholder="Guess"
-                  autoComplete="off"
-                />
-                <button type="submit" disabled={gameStatus !== "playing" || !dailyWord}>
-                  Guess
-                </button>
+            <div className="wordle-keyboard-container">
+              <div className="wordle-keyboard">
+                <div className="keyboard-row">
+                  {["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"].map((letter) => (
+                    <button
+                      key={letter}
+                      type="button"
+                      className={`keyboard-key ${letterStates[letter] || ""}`.trim()}
+                      onClick={() => handleKeyClick(letter)}
+                      disabled={gameStatus !== "playing" || !dailyWord}
+                    >
+                      {letter}
+                    </button>
+                  ))}
+                </div>
+                <div className="keyboard-row">
+                  {["A", "S", "D", "F", "G", "H", "J", "K", "L"].map((letter) => (
+                    <button
+                      key={letter}
+                      type="button"
+                      className={`keyboard-key ${letterStates[letter] || ""}`.trim()}
+                      onClick={() => handleKeyClick(letter)}
+                      disabled={gameStatus !== "playing" || !dailyWord}
+                    >
+                      {letter}
+                    </button>
+                  ))}
+                </div>
+                <div className="keyboard-row">
+                  <button
+                    type="button"
+                    className="keyboard-key keyboard-key-enter"
+                    onClick={handleEnter}
+                    disabled={gameStatus !== "playing" || !dailyWord || currentGuess.length !== WORD_LENGTH}
+                  >
+                    ENTER
+                  </button>
+                  {["Z", "X", "C", "V", "B", "N", "M"].map((letter) => (
+                    <button
+                      key={letter}
+                      type="button"
+                      className={`keyboard-key ${letterStates[letter] || ""}`.trim()}
+                      onClick={() => handleKeyClick(letter)}
+                      disabled={gameStatus !== "playing" || !dailyWord}
+                    >
+                      {letter}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="keyboard-key keyboard-key-backspace"
+                    onClick={handleBackspace}
+                    disabled={gameStatus !== "playing" || !dailyWord || currentGuess.length === 0}
+                  >
+                    ⌫
+                  </button>
+                </div>
               </div>
-            </form>
+            </div>
             {errorMessage && <p className="wordle-error">{errorMessage}</p>}
             {resultMessage && <p className="wordle-result">{resultMessage}</p>}
             {submittingResult && <p className="wordle-saver">Updating leaderboard...</p>}

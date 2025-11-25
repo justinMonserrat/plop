@@ -172,6 +172,96 @@
   background: var(--accent-light, #6BB0FF);
 }
 
+.wordle-keyboard-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.wordle-keyboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 600px;
+}
+
+.keyboard-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.keyboard-key {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 50px;
+  height: 50px;
+  padding: 0 8px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  border: 2px outset var(--border-light, #6BB0FF);
+  background: rgba(107, 176, 255, 0.2);
+  color: var(--text-primary, #ffffff);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.keyboard-key:hover:not(:disabled) {
+  background: rgba(107, 176, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.keyboard-key:active:not(:disabled) {
+  border-style: inset;
+  transform: translateY(0);
+}
+
+.keyboard-key:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.keyboard-key.correct {
+  background: #4ade80;
+  border-color: #22c55e;
+  color: #04210f;
+}
+
+.keyboard-key.present {
+  background: #fbbf24;
+  border-color: #f59e0b;
+  color: #3f2202;
+}
+
+.keyboard-key.absent {
+  background: rgba(148, 163, 184, 0.35);
+  border-color: rgba(100, 116, 139, 0.45);
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.keyboard-key-enter,
+.keyboard-key-backspace {
+  flex: 1.5 1 0;
+  max-width: 80px;
+  min-width: 50px;
+  font-size: 0.75rem;
+  background: var(--accent-secondary, #4A90E2);
+}
+
+.keyboard-key-enter:hover:not(:disabled),
+.keyboard-key-backspace:hover:not(:disabled) {
+  background: var(--accent-light, #6BB0FF);
+}
+
 .wordle-error {
   color: #facc15;
   font-weight: bold;
@@ -350,6 +440,24 @@
     width: 100%;
   }
 
+  .keyboard-key {
+    max-width: 40px;
+    height: 45px;
+    padding: 0 6px;
+    font-size: 0.8rem;
+  }
+
+  .keyboard-key-enter,
+  .keyboard-key-backspace {
+    max-width: 70px;
+    min-width: 45px;
+    font-size: 0.7rem;
+  }
+
+  .keyboard-row {
+    gap: 0.3rem;
+  }
+
   .game-card-header {
     flex-direction: column;
     align-items: flex-start;
@@ -405,6 +513,24 @@
 
   .wordle-input-group {
     flex-direction: column;
+  }
+
+  .keyboard-key {
+    max-width: 35px;
+    height: 40px;
+    padding: 0 4px;
+    font-size: 0.75rem;
+  }
+
+  .keyboard-key-enter,
+  .keyboard-key-backspace {
+    max-width: 60px;
+    min-width: 40px;
+    font-size: 0.65rem;
+  }
+
+  .keyboard-row {
+    gap: 0.25rem;
   }
 
   .leaderboard-toggle {

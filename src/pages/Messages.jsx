@@ -26,6 +26,7 @@ export default function Messages({ onViewProfile }) {
   const [showGroupChatModal, setShowGroupChatModal] = useState(false);
   const [showChatOptionsModal, setShowChatOptionsModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showAllMembers, setShowAllMembers] = useState(false);
   const [groupChatName, setGroupChatName] = useState("");
   const [selectedFriends, setSelectedFriends] = useState([]);
   const fileInputRef = useRef(null);
@@ -46,6 +47,7 @@ export default function Messages({ onViewProfile }) {
       setMessages([]);
       setMessagesPage(0);
       setHasMoreMessages(true);
+      setShowAllMembers(false);
       fetchMessages(selectedConversation.id, 0, true);
       fetchChatMembers(selectedConversation.id);
       // Subscribe to new messages
@@ -928,7 +930,10 @@ export default function Messages({ onViewProfile }) {
           <div className="group-members-list">
             <strong>Members ({memberCount}):</strong>
             <div className="members-grid">
-              {chatMembers.map((member) => (
+              {(isMobile && !showAllMembers && memberCount > 4 
+                ? chatMembers.slice(0, 3) 
+                : chatMembers
+              ).map((member) => (
                 <div
                   key={member.id}
                   className="member-item"
@@ -947,6 +952,24 @@ export default function Messages({ onViewProfile }) {
                   <span>{member.nickname || 'User'}</span>
                 </div>
               ))}
+              {isMobile && memberCount > 4 && !showAllMembers && (
+                <button
+                  className="member-more-btn"
+                  onClick={() => setShowAllMembers(true)}
+                  title={`Show ${memberCount - 3} more members`}
+                >
+                  +{memberCount - 3}
+                </button>
+              )}
+              {isMobile && showAllMembers && memberCount > 4 && (
+                <button
+                  className="member-more-btn"
+                  onClick={() => setShowAllMembers(false)}
+                  title="Show less"
+                >
+                  −
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useProfile } from "../hooks/useProfile";
 import { supabase } from "../supabaseClient";
+import { compressPostImage } from "../utils/imageCompression";
 import "../styles/home.css";
+import "../styles/blog.css";
 import { notifyUser } from "../utils/notifications";
 
 const POSTS_PER_PAGE = 20;
@@ -18,6 +20,10 @@ export default function Home({ onViewProfile }) {
   const [expandedComments, setExpandedComments] = useState(new Set());
   const [commentInputs, setCommentInputs] = useState({});
   const [replyInputs, setReplyInputs] = useState({});
+  const [commentImages, setCommentImages] = useState({});
+  const [commentImagePreviews, setCommentImagePreviews] = useState({});
+  const [uploadingCommentImage, setUploadingCommentImage] = useState(false);
+  const commentFileInputRefs = useRef({});
 
   useEffect(() => {
     setPosts([]);
@@ -242,16 +248,108 @@ export default function Home({ onViewProfile }) {
     }
   };
 
-  const handleComment = async (postId, content, parentId = null) => {
-    if (!user?.id || !content.trim()) return;
+  const handleCommentImageSelect = async (e, postId, commentId = null) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file.');
+      const key = commentId ? `${postId}-${commentId}` : postId;
+      if (commentFileInputRefs.current[key]) {
+        commentFileInputRefs.current[key].value = '';
+      }
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image size must be less than 10MB.');
+      const key = commentId ? `${postId}-${commentId}` : postId;
+      if (commentFileInputRefs.current[key]) {
+        commentFileInputRefs.current[key].value = '';
+      }
+      return;
+    }
 
     try {
+      const compressedFile = await compressPostImage(file);
+
+      if (compressedFile.size > 2 * 1024 * 1024) {
+        alert('Image is too large even after compression. Please try a smaller image.');
+        const key = commentId ? `${postId}-${commentId}` : postId;
+        if (commentFileInputRefs.current[key]) {
+          commentFileInputRefs.current[key].value = '';
+        }
+        return;
+      }
+
+      const key = commentId ? `${postId}-${commentId}` : postId;
+      setCommentImages(prev => ({ ...prev, [key]: compressedFile }));
+      
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCommentImagePreviews(prev => ({ ...prev, [key]: reader.result }));
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      alert('Error processing image. Please try again.');
+      const key = commentId ? `${postId}-${commentId}` : postId;
+      if (commentFileInputRefs.current[key]) {
+        commentFileInputRefs.current[key].value = '';
+      }
+    }
+  };
+
+  const handleComment = async (postId, content, parentId = null) => {
+    const key = parentId ? `${postId}-${parentId}` : postId;
+    const commentImage = commentImages[key];
+    const commentText = content.trim();
+    
+    if (!user?.id || (!commentText && !commentImage)) return;
+
+    setUploadingCommentImage(true);
+    try {
+      let imageUrl = null;
+
+      // Upload image if present
+      if (commentImage) {
+        try {
+          const fileName = `${user.id}-${Date.now()}-comment.jpg`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('post-images')
+            .upload(fileName, commentImage, {
+              upsert: true,
+              cacheControl: '3600',
+            });
+
+          if (uploadError) {
+            console.error('Upload error:', uploadError);
+            alert(`Error uploading image: ${uploadError.message || 'Please try again.'}`);
+            setUploadingCommentImage(false);
+            return;
+          }
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('post-images')
+            .getPublicUrl(fileName);
+
+          imageUrl = publicUrl;
+        } catch (error) {
+          console.error('Error uploading comment image:', error);
+          alert('Error uploading image. Please try again.');
+          setUploadingCommentImage(false);
+          return;
+        }
+      }
+
       const { data, error } = await supabase
         .from('comments')
         .insert({
           post_id: postId,
           user_id: user.id,
-          content: content.trim(),
+          content: commentText || null,
+          image_url: imageUrl || null,
           parent_id: parentId,
         })
         .select()
@@ -315,7 +413,7 @@ export default function Home({ onViewProfile }) {
             payload: {
               actorName,
               postId,
-              snippet: content.trim().slice(0, 80),
+              snippet: commentText ? commentText.slice(0, 80) : '[Image]',
             },
           });
         }
@@ -329,25 +427,53 @@ export default function Home({ onViewProfile }) {
             type: "comment_reply",
             postId,
             commentId: parentId,
-            payload: {
-              actorName,
-              postId,
-              commentId: parentId,
-              snippet: content.trim().slice(0, 80),
-            },
+              payload: {
+                actorName,
+                postId,
+                commentId: parentId,
+                snippet: commentText ? commentText.slice(0, 80) : '[Image]',
+              },
           });
         }
       }
 
-      // Clear input
+      // Clear inputs
       if (parentId) {
         setReplyInputs(prev => ({ ...prev, [parentId]: '' }));
+        setCommentImages(prev => {
+          const newState = { ...prev };
+          delete newState[key];
+          return newState;
+        });
+        setCommentImagePreviews(prev => {
+          const newState = { ...prev };
+          delete newState[key];
+          return newState;
+        });
+        if (commentFileInputRefs.current[key]) {
+          commentFileInputRefs.current[key].value = '';
+        }
       } else {
         setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+        setCommentImages(prev => {
+          const newState = { ...prev };
+          delete newState[postId];
+          return newState;
+        });
+        setCommentImagePreviews(prev => {
+          const newState = { ...prev };
+          delete newState[postId];
+          return newState;
+        });
+        if (commentFileInputRefs.current[postId]) {
+          commentFileInputRefs.current[postId].value = '';
+        }
       }
     } catch (error) {
       console.error('Error adding comment:', error);
       alert('Error adding comment. Please try again.');
+    } finally {
+      setUploadingCommentImage(false);
     }
   };
 
@@ -496,7 +622,12 @@ export default function Home({ onViewProfile }) {
                               </div>
                               <span className="comment-time">{formatDate(comment.created_at)}</span>
                             </div>
-                            <div className="comment-content">{comment.content}</div>
+                            <div className="comment-content">
+                              {comment.image_url && (
+                                <img src={comment.image_url} alt="Comment" className="post-image" style={{ maxHeight: '300px', marginBottom: '0.5rem' }} />
+                              )}
+                              {comment.content && <div>{comment.content}</div>}
+                            </div>
 
                             {/* Replies */}
                             {comment.replies?.length > 0 && (
@@ -524,7 +655,12 @@ export default function Home({ onViewProfile }) {
                                       </div>
                                       <span className="reply-time">{formatDate(reply.created_at)}</span>
                                     </div>
-                                    <div className="reply-content">{reply.content}</div>
+                                    <div className="reply-content">
+                                      {reply.image_url && (
+                                        <img src={reply.image_url} alt="Reply" className="post-image" style={{ maxHeight: '250px', marginBottom: '0.5rem' }} />
+                                      )}
+                                      {reply.content && <div>{reply.content}</div>}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -532,18 +668,80 @@ export default function Home({ onViewProfile }) {
 
                             {/* Reply input */}
                             <div className="reply-input-wrapper">
-                              <input
-                                type="text"
-                                placeholder="Reply..."
-                                value={replyInputs[comment.id] || ''}
-                                onChange={(e) => setReplyInputs(prev => ({ ...prev, [comment.id]: e.target.value }))}
-                                onKeyPress={(e) => {
-                                  if (e.key === 'Enter' && e.target.value.trim()) {
-                                    handleComment(post.id, e.target.value, comment.id);
-                                  }
-                                }}
-                                className="reply-input"
-                              />
+                              {commentImagePreviews[`${post.id}-${comment.id}`] && (
+                                <div className="image-preview" style={{ marginBottom: '0.5rem' }}>
+                                  <img src={commentImagePreviews[`${post.id}-${comment.id}`]} alt="Preview" style={{ maxHeight: '150px', borderRadius: '8px', border: '2px solid var(--border-color, #3b82f6)' }} />
+                                  <button
+                                    type="button"
+                                    className="remove-image-btn"
+                                    onClick={() => {
+                                      const key = `${post.id}-${comment.id}`;
+                                      setCommentImages(prev => {
+                                        const newState = { ...prev };
+                                        delete newState[key];
+                                        return newState;
+                                      });
+                                      setCommentImagePreviews(prev => {
+                                        const newState = { ...prev };
+                                        delete newState[key];
+                                        return newState;
+                                      });
+                                      if (commentFileInputRefs.current[key]) {
+                                        commentFileInputRefs.current[key].value = '';
+                                      }
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              )}
+                              <div>
+                                <input
+                                  type="file"
+                                  ref={el => {
+                                    const key = `${post.id}-${comment.id}`;
+                                    if (el) commentFileInputRefs.current[key] = el;
+                                  }}
+                                  onChange={(e) => handleCommentImageSelect(e, post.id, comment.id)}
+                                  accept="image/*"
+                                  style={{ display: 'none' }}
+                                  disabled={uploadingCommentImage}
+                                />
+                                <div>
+                                  <button
+                                    type="button"
+                                    className="image-btn"
+                                    style={{ 
+                                      padding: '6px 12px', 
+                                      fontSize: '0.9rem',
+                                      marginBottom: '0.5rem'
+                                    }}
+                                    onClick={() => {
+                                      const key = `${post.id}-${comment.id}`;
+                                      commentFileInputRefs.current[key]?.click();
+                                    }}
+                                    disabled={uploadingCommentImage}
+                                    title="Add image"
+                                  >
+                                    📷 Add Image
+                                  </button>
+                                  <input
+                                    type="text"
+                                    placeholder="Reply..."
+                                    value={replyInputs[comment.id] || ''}
+                                    onChange={(e) => setReplyInputs(prev => ({ ...prev, [comment.id]: e.target.value }))}
+                                    onKeyPress={(e) => {
+                                      const key = `${post.id}-${comment.id}`;
+                                      const hasImage = commentImages[key];
+                                      const hasText = e.target.value.trim();
+                                      if (e.key === 'Enter' && (hasText || hasImage)) {
+                                        handleComment(post.id, e.target.value, comment.id);
+                                      }
+                                    }}
+                                    className="reply-input"
+                                  />
+                                </div>
+                              </div>
                             </div>
                           </div>
                         ))
@@ -554,18 +752,74 @@ export default function Home({ onViewProfile }) {
 
                     {/* Comment input */}
                     <div className="comment-input-wrapper">
-                      <input
-                        type="text"
-                        placeholder="Write a comment..."
-                        value={commentInputs[post.id] || ''}
-                        onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            handleComment(post.id, e.target.value);
-                          }
-                        }}
-                        className="comment-input"
-                      />
+                      {commentImagePreviews[post.id] && (
+                        <div className="image-preview" style={{ marginBottom: '0.5rem' }}>
+                          <img src={commentImagePreviews[post.id]} alt="Preview" style={{ maxHeight: '150px', borderRadius: '8px', border: '2px solid var(--border-color, #3b82f6)' }} />
+                          <button
+                            type="button"
+                            className="remove-image-btn"
+                            onClick={() => {
+                              setCommentImages(prev => {
+                                const newState = { ...prev };
+                                delete newState[post.id];
+                                return newState;
+                              });
+                              setCommentImagePreviews(prev => {
+                                const newState = { ...prev };
+                                delete newState[post.id];
+                                return newState;
+                              });
+                              if (commentFileInputRefs.current[post.id]) {
+                                commentFileInputRefs.current[post.id].value = '';
+                              }
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                      <div>
+                        <input
+                          type="file"
+                          ref={el => {
+                            if (el) commentFileInputRefs.current[post.id] = el;
+                          }}
+                          onChange={(e) => handleCommentImageSelect(e, post.id)}
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={uploadingCommentImage}
+                        />
+                        <div>
+                          <button
+                            type="button"
+                            className="image-btn"
+                            style={{ 
+                              padding: '6px 12px', 
+                              fontSize: '0.9rem',
+                              marginBottom: '0.5rem'
+                            }}
+                            onClick={() => commentFileInputRefs.current[post.id]?.click()}
+                            disabled={uploadingCommentImage}
+                            title="Add image"
+                          >
+                            📷 Add Image
+                          </button>
+                          <input
+                            type="text"
+                            placeholder="Write a comment..."
+                            value={commentInputs[post.id] || ''}
+                            onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
+                            onKeyPress={(e) => {
+                              const hasImage = commentImages[post.id];
+                              const hasText = e.target.value.trim();
+                              if (e.key === 'Enter' && (hasText || hasImage)) {
+                                handleComment(post.id, e.target.value);
+                              }
+                            }}
+                            className="comment-input"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
