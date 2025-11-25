@@ -31,7 +31,7 @@ export default function Blog({ onViewProfile }) {
 
   const fetchPosts = async (pageNum = 0, reset = false) => {
     if (!user?.id) return;
-    
+
     if (reset) {
       setLoading(true);
     } else {
@@ -83,12 +83,12 @@ export default function Blog({ onViewProfile }) {
         .in('id', userIds);
 
       const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
-      
+
       // Update posts with profiles
       setPosts(prev => prev.map(post => {
         const postIndex = postsData.findIndex(p => p.id === post.id);
         if (postIndex === -1) return post; // Keep existing posts
-        
+
         return {
           ...post,
           profiles: profilesMap.get(post.user_id),
@@ -134,7 +134,7 @@ export default function Blog({ onViewProfile }) {
     try {
       // Compress the image
       const compressedFile = await compressPostImage(file);
-      
+
       // Check compressed size (max 2MB after compression)
       if (compressedFile.size > 2 * 1024 * 1024) {
         alert('Image is too large even after compression. Please try a smaller image.');
@@ -296,14 +296,14 @@ export default function Blog({ onViewProfile }) {
   return (
     <div className="page-content">
       <h1>Blog</h1>
-      
+
       <div className="post-form-section">
         <form onSubmit={handlePost} className="post-form">
           <textarea
             placeholder="What's on your mind? Share your thoughts..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            maxLength={500}
+            maxLength={1000}
             rows={4}
             className="post-input"
             disabled={posting || uploadingImage}
@@ -346,11 +346,11 @@ export default function Blog({ onViewProfile }) {
                 📷 Add Image
               </button>
               <span className="character-count">
-                {content.length}/500
+                {content.length}/1000
               </span>
             </div>
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               className="post-btn"
               disabled={(!content.trim() && !postImage) || posting || uploadingImage}
             >
@@ -390,7 +390,7 @@ export default function Blog({ onViewProfile }) {
               posts.map((post) => (
                 <div key={post.id} className="post-card">
                   <div className="post-header">
-                    <div 
+                    <div
                       className="post-author"
                       onClick={() => onViewProfile && onViewProfile(post.user_id)}
                       style={{ cursor: 'pointer' }}
@@ -433,8 +433,8 @@ export default function Blog({ onViewProfile }) {
           </div>
           {hasMore && (
             <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-              <button 
-                onClick={loadMore} 
+              <button
+                onClick={loadMore}
                 disabled={loadingMore}
                 style={{
                   padding: '0.75rem 2rem',
